@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .title }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        .header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .header .badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.9em;
+            backdrop-filter: blur(10px);
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s ease;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+        }
+
+        .card h2 {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 24px;
+            font-size: 1.6em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .upload-area {
+            border: 2px dashed #667eea;
+            border-radius: 12px;
+            padding: 50px 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+        }
+
+        .upload-area:hover {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            border-color: #764ba2;
+            transform: scale(1.02);
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            margin-bottom: 16px;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 10px;
+            color: #333;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e8e8e8;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 120px;
+            line-height: 1.6;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 10px;
+            font-size: 1.05em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .result-area {
+            background: linear-gradient(135deg, #f8f9ff 0%, #f5f7ff 100%);
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 24px;
+            min-height: 300px;
+            max-height: 600px;
+            overflow-y: auto;
+            border: 2px solid #e8e8f8;
+        }
+
+        .result-area::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .result-area::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .result-area::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+        }
+
+        .result-content {
+            color: #333;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 1.05em;
+        }
+
+        /* 工具调用信息卡片 */
+        .tool-call {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+            border-left: 4px solid #667eea;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+            animation: slideInLeft 0.4s ease-out;
+        }
+
+        .tool-call-header {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tool-call-body {
+            color: #555;
+            font-size: 0.95em;
+            padding-left: 24px;
+        }
+
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* 信息提示 */
+        .info-message {
+            background: linear-gradient(135deg, rgba(52, 152, 219, 0.1) 0%, rgba(41, 128, 185, 0.1) 100%);
+            border-left: 4px solid #3498db;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 12px 0;
+            color: #2c3e50;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .streaming-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 20px;
+            background: #667eea;
+            animation: blink 1s infinite;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #667eea;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-message {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-top: 12px;
+            font-size: 0.95em;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+        }
+
+        .placeholder {
+            color: #999;
+            text-align: center;
+            padding: 60px 20px;
+            font-size: 1.1em;
+        }
+
+        /* 模式说明卡片 */
+        .mode-info {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+            font-size: 0.9em;
+            color: #666;
+            display: none;
+        }
+
+        .mode-info.show {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .card {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔥 智能知识增强系统</h1>
+            <div class="subtitle">
+                <span>基于火山引擎 Ark 的智能检索增强生成系统</span>
+                <span class="badge">v2.0-enhanced</span>
+                <span class="badge">🚀 自动联网搜索</span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- 文件上传区域 -->
+            <div class="card">
+                <h2>📁 文档上传</h2>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📄</div>
+                    <p style="font-size: 1.1em; margin-bottom: 8px;"><strong>点击或拖拽文件到此处上传</strong></p>
+                    <p style="font-size: 0.9em; color: #666;">
+                        支持 Markdown 和 PDF 文件，最大 10MB
+                    </p>
+                    <input type="file" id="fileInput" accept=".md,.pdf,.markdown">
+                </div>
+                <div id="uploadStatus"></div>
+            </div>
+
+            <!-- 查询区域 -->
+            <div class="card">
+                <h2>💬 智能问答</h2>
+                <form id="queryForm">
+                    <div class="form-group">
+                        <label for="mode">查询模式</label>
+                        <select id="mode" required>
+                            <option value="rag">🎯 智能RAG - 自动联网增强</option>
+                            <option value="react">🤖 ReAct Agent - 智能工具调用</option>
+                            <option value="rag_agent">📚 RAG Agent - 增强型检索</option>
+                            <option value="multi-agent">🌐 Multi-Agent - 多智能体协作</option>
+                        </select>
+                        <div id="modeInfo" class="mode-info"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="query">输入你的问题</label>
+                        <textarea id="query" placeholder="例如：Rust编程语言2026年最新特性&#10;Python 2026年新增的AI相关库有哪些&#10;什么是YYDS？它是怎么流行起来的？" required></textarea>
+                    </div>
+                    <button type="submit" class="btn" id="queryBtn">🚀 开始查询</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 结果展示区域 -->
+        <div class="card" style="animation-delay: 0.2s;">
+            <h2>📊 智能回答</h2>
+            <div class="result-area" id="resultArea">
+                <div class="placeholder">💡 查询结果将以流式方式实时显示在这里...<br><br>
+                    <small style="color: #aaa;">
+                        💫 新功能：当本地知识库不足时，系统会自动联网搜索最新信息<br>
+                        🔖 搜索结果会自动保存到知识库，下次查询可直接使用
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 模式说明
+        const modeDescriptions = {
+            'rag': '🎯 <strong>智能RAG模式</strong>：首先搜索本地知识库，若相关度不足会自动联网搜索最新信息，并将结果自动保存到知识库',
+            'react': '🤖 <strong>ReAct Agent模式</strong>：智能推理和行动，自动选择合适的工具（热词搜索、趋势分析、联网搜索等）来回答问题',
+            'rag_agent': '📚 <strong>RAG Agent模式</strong>：增强型检索代理，结合多轮推理和知识库检索提供深度回答',
+            'multi-agent': '🌐 <strong>Multi-Agent模式</strong>：多个专业智能体协作，提供全面深入的分析和回答'
+        };
+
+        const modeSelect = document.getElementById('mode');
+        const modeInfo = document.getElementById('modeInfo');
+
+        // 显示模式说明
+        function updateModeInfo() {
+            const selectedMode = modeSelect.value;
+            modeInfo.innerHTML = modeDescriptions[selectedMode] || '';
+            modeInfo.classList.add('show');
+        }
+
+        modeSelect.addEventListener('change', updateModeInfo);
+        updateModeInfo(); // 初始化显示
+
+        // 文件上传
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadStatus = document.getElementById('uploadStatus');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#764ba2';
+            uploadArea.style.transform = 'scale(1.02)';
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = '#667eea';
+            uploadArea.style.transform = 'scale(1)';
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#667eea';
+            uploadArea.style.transform = 'scale(1)';
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileUpload(e.target.files[0]);
+            }
+        });
+
+        async function handleFileUpload(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            uploadStatus.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>上传中...</p></div>';
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    uploadStatus.innerHTML = `<div class="status-message status-success">✓ ${data.message || '上传成功'}</div>`;
+                } else {
+                    uploadStatus.innerHTML = `<div class="status-message status-error">✗ ${data.error || '上传失败'}</div>`;
+                }
+            } catch (error) {
+                uploadStatus.innerHTML = `<div class="status-message status-error">✗ 上传失败: ${error.message}</div>`;
+            }
+        }
+
+        // 流式查询处理
+        const queryForm = document.getElementById('queryForm');
+        const queryBtn = document.getElementById('queryBtn');
+        const resultArea = document.getElementById('resultArea');
+
+        queryForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const query = document.getElementById('query').value;
+            const mode = document.getElementById('mode').value;
+
+            queryBtn.disabled = true;
+            queryBtn.textContent = '⏳ 查询中...';
+            resultArea.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>正在思考...</p></div>';
+
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query, mode })
+                });
+
+                if (!response.ok) {
+                    throw new Error('查询失败');
+                }
+
+                // 处理流式响应
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let fullAnswer = '';
+
+                resultArea.innerHTML = '<div class="result-content"><span class="streaming-cursor"></span></div>';
+                const contentDiv = resultArea.querySelector('.result-content');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop() || '';
+
+                    for (const chunk of lines) {
+                        if (!chunk.trim()) continue;
+
+                        const chunkLines = chunk.split('\n');
+                        let eventType = '';
+                        let data = '';
+
+                        for (const line of chunkLines) {
+                            if (line.startsWith('event:')) {
+                                eventType = line.slice(6).trim();
+                            } else if (line.startsWith('data:')) {
+                                data = line.slice(5).trim();
+                            }
+                        }
+
+                        if (eventType === 'message' && data) {
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.content) {
+                                    const content = parsed.content;
+
+                                    // 检测特殊信息（联网搜索提示）
+                                    if (content.includes('ℹ️') || content.includes('本地知识库暂无相关内容')) {
+                                        fullAnswer += '<div class="info-message">' + content + '</div>';
+                                    }
+                                    // 检测工具调用信息（ReAct Agent）
+                                    else if (content.includes('调用工具') || content.includes('tool')) {
+                                        fullAnswer += '<div class="tool-call"><div class="tool-call-header">🔧 ' + content + '</div></div>';
+                                    }
+                                    else {
+                                        fullAnswer += content;
+                                    }
+
+                                    contentDiv.innerHTML = fullAnswer + '<span class="streaming-cursor"></span>';
+                                    // 自动滚动到底部
+                                    resultArea.scrollTop = resultArea.scrollHeight;
+                                }
+                            } catch (e) {
+                                console.error('解析错误:', e, data);
+                            }
+                        } else if (eventType === 'done') {
+                            break;
+                        }
+                    }
+                }
+
+                // 移除光标
+                contentDiv.innerHTML = fullAnswer;
+
+            } catch (error) {
+                resultArea.innerHTML = `<div class="status-message status-error">✗ 查询失败: ${error.message}</div>`;
+            } finally {
+                queryBtn.disabled = false;
+                queryBtn.textContent = '🚀 开始查询';
+            }
+        });
+    </script>
+</body>
+</html>
