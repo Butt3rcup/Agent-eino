@@ -29,15 +29,23 @@ import (
 )
 
 type Handler struct {
-	cfg        *config.Config
-	ragService *rag.Service
-	chatModel  *arkComponent.ChatModel
+	cfg          *config.Config
+	ragService   *rag.Service
+	chatModel    *arkComponent.ChatModel
+	milvusClient *vectordb.MilvusClient
 
 	reactAgent *agent.ReActAgent
 	multiAgent *agent.MultiAgentSystem
 	ragAgent   *agent.RAGAgent
 	ragGraph   *graph.RAGGraph
 	multiGraph *graph.MultiStageGraph
+}
+
+var toolCallDescriptionPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`用户.*调用.*函数`),
+	regexp.MustCompile(`调用.*函数.*获取`),
+	regexp.MustCompile(`使用.*工具.*获取`),
+	regexp.MustCompile(`想了解.*调用.*函数`),
 }
 
 func NewHandler(cfg *config.Config) (*Handler, error) {
@@ -164,15 +172,25 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 	}
 
 	return &Handler{
-		cfg:        cfg,
-		ragService: ragService,
-		chatModel:  chatModel,
-		reactAgent: reactAgent,
-		multiAgent: multiAgent,
-		ragAgent:   ragAgent,
-		ragGraph:   ragGraph,
-		multiGraph: multiGraph,
+		cfg:          cfg,
+		ragService:   ragService,
+		chatModel:    chatModel,
+		milvusClient: milvusClient,
+		reactAgent:   reactAgent,
+		multiAgent:   multiAgent,
+		ragAgent:     ragAgent,
+		ragGraph:     ragGraph,
+		multiGraph:   multiGraph,
 	}, nil
+}
+
+func (h *Handler) Close() {
+	if h.ragService != nil {
+		h.ragService.Close()
+	}
+	if h.milvusClient != nil {
+		h.milvusClient.Close()
+	}
 }
 
 type UploadResponse struct {
@@ -203,14 +221,16 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	filename := fmt.Sprintf("%d_%s", time.Now().Unix(), file.Filename)
+	now := time.Now()
+	safeName := sanitizeUploadFilename(file.Filename)
+	filename := fmt.Sprintf("%d_%s", now.Unix(), safeName)
 	savePath := filepath.Join(h.cfg.Upload.Dir, filename)
 	if err := c.SaveUploadedFile(file, savePath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
 		return
 	}
 
-	metadata := fmt.Sprintf("filename:%s,upload_time:%s", file.Filename, time.Now().Format(time.RFC3339))
+	metadata := fmt.Sprintf("filename:%s,upload_time:%s", safeName, now.Format(time.RFC3339))
 	if err := h.ragService.IndexFile(c.Request.Context(), savePath, metadata); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("索引文件失败: %v", err)})
 		return
@@ -471,21 +491,34 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 
 // isToolCallDescription 判断文本是否为工具调用描述
 func isToolCallDescription(text string) bool {
-	// 检测典型的工具调用描述模式
-	// 模式1: "用户想了解xxx调用xxx函数"
-	// 模式2: "调用xxx函数获取xxx"
-	patterns := []string{
-		"用户.*调用.*函数",
-		"调用.*函数.*获取",
-		"使用.*工具.*获取",
-		"想了解.*调用.*函数",
-	}
-	for _, pattern := range patterns {
-		if matched, _ := regexp.MatchString(pattern, text); matched {
+	for _, pattern := range toolCallDescriptionPatterns {
+		if pattern.MatchString(text) {
 			return true
 		}
 	}
 	return false
+}
+
+func sanitizeUploadFilename(filename string) string {
+	base := filepath.Base(strings.TrimSpace(filename))
+	if base == "" || base == "." {
+		return "upload_file"
+	}
+
+	re := regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
+	safe := re.ReplaceAllString(base, "_")
+	safe = strings.Trim(safe, " .")
+	if safe == "" {
+		return "upload_file"
+	}
+
+	const maxFilenameLen = 128
+	runes := []rune(safe)
+	if len(runes) > maxFilenameLen {
+		safe = string(runes[:maxFilenameLen])
+	}
+
+	return safe
 }
 
 func (h *Handler) streamTextResult(c *gin.Context, flusher http.Flusher, fn func(context.Context) (string, error)) {

@@ -31,6 +31,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to create handler", zap.Error(err))
 	}
+	defer h.Close()
 
 	// 创建 Gin 路由
 	r := gin.Default()

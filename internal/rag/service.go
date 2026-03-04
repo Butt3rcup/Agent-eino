@@ -120,19 +120,7 @@ func (s *Service) BuildContext(ctx context.Context, query string) (string, error
 		return "", err
 	}
 
-	if len(results) == 0 {
-		return "", nil
-	}
-
-	var contextParts []string
-	for i, result := range results {
-		contextParts = append(contextParts, fmt.Sprintf(
-			"[文档 %d] (相关度: %.4f)\n%s",
-			i+1, result.Score, result.Content,
-		))
-	}
-
-	return strings.Join(contextParts, "\n\n"), nil
+	return buildContextFromResults(results), nil
 }
 
 // SmartRetrieve 智能检索：优先使用本地知识，相似度不足时触发联网搜索
@@ -150,16 +138,14 @@ func (s *Service) SmartRetrieve(ctx context.Context, query string) (string, bool
 		logger.Info("[SmartRetrieve] 本地知识充足，使用本地知识",
 			zap.Float32("相似度", results[0].Score),
 			zap.Float32("阈值", s.threshold))
-		context, err := s.BuildContext(ctx, query)
-		return context, false, err
+		return buildContextFromResults(results), false, nil
 	}
 
 	// 3. 判断是否启用联网搜索
 	if !s.enableAutoSearch {
 		// 未启用自动搜索，返回最佳本地结果（如果有）
 		if len(results) > 0 {
-			context, err := s.BuildContext(ctx, query)
-			return context, false, err
+			return buildContextFromResults(results), false, nil
 		}
 		return "", false, fmt.Errorf("本地无相关知识且未启用联网搜索")
 	}
@@ -260,3 +246,18 @@ func getFirstScore(results []vectordb.SearchResult) float32 {
 	return 999.0 // 表示无本地结果
 }
 
+func buildContextFromResults(results []vectordb.SearchResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+
+	contextParts := make([]string, len(results))
+	for i, result := range results {
+		contextParts[i] = fmt.Sprintf(
+			"[文档 %d] (相关度: %.4f)\n%s",
+			i+1, result.Score, result.Content,
+		)
+	}
+
+	return strings.Join(contextParts, "\n\n")
+}

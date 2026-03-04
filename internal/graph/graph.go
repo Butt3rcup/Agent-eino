@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	arkComponent "github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino/compose"
@@ -49,8 +50,14 @@ func NewRAGGraph(config *RAGGraphConfig) (*RAGGraph, error) {
 	}))
 
 	g.AddLambdaNode("build_prompt", compose.InvokableLambda(func(ctx context.Context, input map[string]any) ([]*schema.Message, error) {
-		query := input["query"].(string)
-		context := input["context"].(string)
+		query, ok := getStringInput(input, "query")
+		if !ok {
+			return nil, fmt.Errorf("query not found in input")
+		}
+		context, ok := getStringInput(input, "context")
+		if !ok {
+			return nil, fmt.Errorf("context not found in input")
+		}
 
 		systemPrompt := config.SystemPrompt
 		if systemPrompt == "" {
@@ -139,7 +146,10 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 	g := compose.NewGraph[map[string]any, map[string]any]()
 
 	g.AddLambdaNode("intent_recognition", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
-		query := input["query"].(string)
+		query, ok := getStringInput(input, "query")
+		if !ok {
+			return nil, fmt.Errorf("query not found in input")
+		}
 		messages := []*schema.Message{
 			{
 				Role:    schema.System,
@@ -155,13 +165,19 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 		if err != nil {
 			return nil, err
 		}
+		if output == nil {
+			return nil, fmt.Errorf("intent recognition returned empty output")
+		}
 
 		input["intent"] = output.Content
 		return input, nil
 	}))
 
 	g.AddLambdaNode("rag_retrieve", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
-		query := input["query"].(string)
+		query, ok := getStringInput(input, "query")
+		if !ok {
+			return nil, fmt.Errorf("query not found in input")
+		}
 		ragContext, err := config.RAGContext(ctx, query)
 		if err != nil {
 			return nil, err
@@ -172,7 +188,11 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 
 	g.AddLambdaNode("tool_execution", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
 		intent, _ := input["intent"].(string)
-		query := input["query"].(string)
+		intent = normalizeIntent(intent)
+		query, ok := getStringInput(input, "query")
+		if !ok {
+			return nil, fmt.Errorf("query not found in input")
+		}
 
 		if toolFunc, ok := tools[intent]; ok {
 			result, err := toolFunc(ctx, query)
@@ -185,8 +205,14 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 	}))
 
 	g.AddLambdaNode("final_generation", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
-		query := input["query"].(string)
-		ragContext := input["rag_context"].(string)
+		query, ok := getStringInput(input, "query")
+		if !ok {
+			return nil, fmt.Errorf("query not found in input")
+		}
+		ragContext, ok := getStringInput(input, "rag_context")
+		if !ok {
+			return nil, fmt.Errorf("rag_context not found in input")
+		}
 		toolResult, _ := input["tool_result"].(string)
 
 		messages := []*schema.Message{
@@ -213,6 +239,9 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 		output, err := chatModel.Generate(ctx, messages)
 		if err != nil {
 			return nil, err
+		}
+		if output == nil {
+			return nil, fmt.Errorf("final generation returned empty output")
 		}
 
 		input["final_answer"] = output.Content
@@ -246,4 +275,30 @@ func (g *MultiStageGraph) Run(ctx context.Context, query string) (string, error)
 	}
 
 	return "", fmt.Errorf("no final answer in output")
+}
+
+func normalizeIntent(intent string) string {
+	v := strings.ToLower(strings.TrimSpace(intent))
+
+	switch {
+	case strings.Contains(v, "comprehensive"):
+		return "comprehensive"
+	case strings.Contains(v, "analysis"):
+		return "analysis"
+	case strings.Contains(v, "explanation"), strings.Contains(v, "explain"):
+		return "explanation"
+	case strings.Contains(v, "search"):
+		return "search"
+	default:
+		return v
+	}
+}
+
+func getStringInput(input map[string]any, key string) (string, bool) {
+	v, ok := input[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	return s, ok
 }

@@ -38,20 +38,17 @@ type CacheEntry struct {
 
 // NewSearchCache 创建搜索缓存
 func NewSearchCache(maxSize int, ttl time.Duration) *SearchCache {
-	cache := &SearchCache{
+	return &SearchCache{
 		entries: make(map[string]*CacheEntry),
 		maxSize: maxSize,
 		ttl:     ttl,
 	}
-	// 启动清理协程
-	go cache.cleanupExpired()
-	return cache
 }
 
 // Get 获取缓存结果
 func (c *SearchCache) Get(key string) ([]HotwordResult, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	entry, exists := c.entries[key]
 	if !exists {
@@ -60,6 +57,7 @@ func (c *SearchCache) Get(key string) ([]HotwordResult, bool) {
 
 	// 检查是否过期
 	if time.Since(entry.Timestamp) > c.ttl {
+		delete(c.entries, key)
 		return nil, false
 	}
 
@@ -70,6 +68,8 @@ func (c *SearchCache) Get(key string) ([]HotwordResult, bool) {
 func (c *SearchCache) Set(key string, results []HotwordResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.removeExpiredLocked()
 
 	// 如果超过最大容量，删除最旧的条目
 	if len(c.entries) >= c.maxSize {
@@ -99,20 +99,12 @@ func (c *SearchCache) evictOldest() {
 	}
 }
 
-// cleanupExpired 定期清理过期缓存
-func (c *SearchCache) cleanupExpired() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		c.mu.Lock()
-		now := time.Now()
-		for key, entry := range c.entries {
-			if now.Sub(entry.Timestamp) > c.ttl {
-				delete(c.entries, key)
-			}
+func (c *SearchCache) removeExpiredLocked() {
+	now := time.Now()
+	for key, entry := range c.entries {
+		if now.Sub(entry.Timestamp) > c.ttl {
+			delete(c.entries, key)
 		}
-		c.mu.Unlock()
 	}
 }
 
@@ -474,18 +466,7 @@ func (t *HotwordSearchTool) extractExplanationWithGoquery(doc *goquery.Document,
 
 // cleanText 清理文本内容
 func (t *HotwordSearchTool) cleanText(text string) string {
-	// 去除多余空白
-	text = strings.TrimSpace(text)
-
-	// 去除换行符
-	text = strings.ReplaceAll(text, "\n", " ")
-	text = strings.ReplaceAll(text, "\r", " ")
-	text = strings.ReplaceAll(text, "\t", " ")
-
-	// 去除连续空格
-	for strings.Contains(text, "  ") {
-		text = strings.ReplaceAll(text, "  ", " ")
-	}
+	text = strings.Join(strings.Fields(text), " ")
 
 	// 限制长度
 	if len(text) > 300 {

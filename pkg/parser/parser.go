@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -78,6 +79,16 @@ func (p *Parser) Tokenize(text string) []string {
 }
 
 func (p *Parser) ChunkText(text string, chunkSize, overlap int) []string {
+	if chunkSize <= 0 {
+		return []string{}
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap >= chunkSize {
+		overlap = chunkSize - 1
+	}
+
 	tokens := p.Tokenize(text)
 	if len(tokens) == 0 {
 		return []string{}
@@ -92,7 +103,7 @@ func (p *Parser) ChunkText(text string, chunkSize, overlap int) []string {
 			end = len(tokens)
 		}
 
-		chunk := strings.Join(tokens[start:end], "")
+		chunk := strings.Join(tokens[start:end], " ")
 		chunks = append(chunks, chunk)
 
 		if end >= len(tokens) {
@@ -106,7 +117,10 @@ func (p *Parser) ChunkText(text string, chunkSize, overlap int) []string {
 }
 
 func (p *Parser) ParseFile(filePath string) (string, error) {
-	ext := strings.ToLower(filePath[strings.LastIndex(filePath, "."):])
+	ext := strings.ToLower(filepath.Ext(filePath))
+	if ext == "" {
+		return "", fmt.Errorf("unsupported file type: %s", filePath)
+	}
 
 	switch ext {
 	case ".md", ".markdown":
