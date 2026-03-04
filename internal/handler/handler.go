@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -87,6 +88,9 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 		cfg.RAG.ChunkSize,
 		cfg.RAG.ChunkOverlap,
 		cfg.RAG.TopK,
+		cfg.RAG.MaxContextDocs,
+		cfg.RAG.MaxContextChars,
+		cfg.RAG.MaxScoreDelta,
 		volcanoSearchTool,
 		cfg.RAG.EnableAutoSearch,
 		cfg.RAG.SimilarityThreshold,
@@ -213,6 +217,15 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	if ext != ".md" && ext != ".markdown" && ext != ".pdf" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持 .md / .markdown / .pdf"})
+		return
+	}
+	contentType, err := detectUploadedContentType(file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无法识别文件类型"})
+		return
+	}
+	if !isAllowedUploadType(ext, contentType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "文件内容类型与扩展名不匹配"})
 		return
 	}
 
@@ -519,6 +532,34 @@ func sanitizeUploadFilename(filename string) string {
 	}
 
 	return safe
+}
+
+func detectUploadedContentType(fileHeader *multipart.FileHeader) (string, error) {
+	file, err := fileHeader.Open()
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	header := make([]byte, 512)
+	n, err := file.Read(header)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return http.DetectContentType(header[:n]), nil
+}
+
+func isAllowedUploadType(ext, contentType string) bool {
+	switch ext {
+	case ".pdf":
+		return contentType == "application/pdf"
+	case ".md", ".markdown":
+		return strings.HasPrefix(contentType, "text/") ||
+			contentType == "application/octet-stream" ||
+			contentType == "application/x-empty"
+	default:
+		return false
+	}
 }
 
 func (h *Handler) streamTextResult(c *gin.Context, flusher http.Flusher, fn func(context.Context) (string, error)) {

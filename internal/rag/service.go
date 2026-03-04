@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/tool"
 	"go.uber.org/zap"
@@ -27,6 +29,9 @@ type Service struct {
 	chunkSize int
 	overlap   int
 	topK      int
+	maxDocs   int
+	maxChars  int
+	maxDelta  float32
 
 	// 智能知识增强相关
 	webSearchTool    tool.InvokableTool // 联网搜索工具
@@ -39,6 +44,8 @@ func NewService(
 	vectorDB *vectordb.MilvusClient,
 	embeddingSvc *embedding.Service,
 	chunkSize, overlap, topK int,
+	maxContextDocs, maxContextChars int,
+	maxScoreDelta float32,
 	webSearchTool tool.InvokableTool,
 	enableAutoSearch bool,
 	threshold float32,
@@ -51,6 +58,9 @@ func NewService(
 		chunkSize:        chunkSize,
 		overlap:          overlap,
 		topK:             topK,
+		maxDocs:          maxContextDocs,
+		maxChars:         maxContextChars,
+		maxDelta:         maxScoreDelta,
 		webSearchTool:    webSearchTool,
 		enableAutoSearch: enableAutoSearch,
 		threshold:        threshold,
@@ -120,7 +130,7 @@ func (s *Service) BuildContext(ctx context.Context, query string) (string, error
 		return "", err
 	}
 
-	return buildContextFromResults(results), nil
+	return s.buildContextFromResults(results), nil
 }
 
 // SmartRetrieve 智能检索：优先使用本地知识，相似度不足时触发联网搜索
@@ -138,14 +148,14 @@ func (s *Service) SmartRetrieve(ctx context.Context, query string) (string, bool
 		logger.Info("[SmartRetrieve] 本地知识充足，使用本地知识",
 			zap.Float32("相似度", results[0].Score),
 			zap.Float32("阈值", s.threshold))
-		return buildContextFromResults(results), false, nil
+		return s.buildContextFromResults(results), false, nil
 	}
 
 	// 3. 判断是否启用联网搜索
 	if !s.enableAutoSearch {
 		// 未启用自动搜索，返回最佳本地结果（如果有）
 		if len(results) > 0 {
-			return buildContextFromResults(results), false, nil
+			return s.buildContextFromResults(results), false, nil
 		}
 		return "", false, fmt.Errorf("本地无相关知识且未启用联网搜索")
 	}
@@ -246,18 +256,71 @@ func getFirstScore(results []vectordb.SearchResult) float32 {
 	return 999.0 // 表示无本地结果
 }
 
-func buildContextFromResults(results []vectordb.SearchResult) string {
+func (s *Service) buildContextFromResults(results []vectordb.SearchResult) string {
 	if len(results) == 0 {
 		return ""
 	}
 
-	contextParts := make([]string, len(results))
-	for i, result := range results {
-		contextParts[i] = fmt.Sprintf(
+	sortedResults := make([]vectordb.SearchResult, len(results))
+	copy(sortedResults, results)
+	sort.Slice(sortedResults, func(i, j int) bool { return sortedResults[i].Score < sortedResults[j].Score })
+
+	bestScore := sortedResults[0].Score
+	contextParts := make([]string, 0, minInt(s.maxDocs, len(sortedResults)))
+	seenContent := make(map[string]struct{}, len(sortedResults))
+	currentChars := 0
+
+	for i, result := range sortedResults {
+		if len(contextParts) >= s.maxDocs {
+			break
+		}
+		if result.Score-bestScore > s.maxDelta {
+			continue
+		}
+		content := strings.TrimSpace(result.Content)
+		if content == "" {
+			continue
+		}
+		key := contentHashKey(content)
+		if _, exists := seenContent[key]; exists {
+			continue
+		}
+
+		part := fmt.Sprintf(
 			"[文档 %d] (相关度: %.4f)\n%s",
-			i+1, result.Score, result.Content,
+			i+1, result.Score, content,
 		)
+		partChars := utf8.RuneCountInString(part)
+		if currentChars+partChars > s.maxChars {
+			break
+		}
+		seenContent[key] = struct{}{}
+		contextParts = append(contextParts, part)
+		currentChars += partChars
 	}
 
+	if len(contextParts) == 0 {
+		first := sortedResults[0]
+		content := strings.TrimSpace(first.Content)
+		if content != "" {
+			contextParts = append(contextParts, fmt.Sprintf("[文档 1] (相关度: %.4f)\n%s", first.Score, content))
+		}
+	}
 	return strings.Join(contextParts, "\n\n")
+}
+
+func contentHashKey(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if len(trimmed) > 512 {
+		trimmed = trimmed[:512]
+	}
+	hash := md5.Sum([]byte(trimmed))
+	return hex.EncodeToString(hash[:])
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

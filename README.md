@@ -1,76 +1,71 @@
 # go-eino-agent
 
-基于 Go + CloudWeGo Eino + 火山引擎 Ark + Milvus 的网络热词 RAG 系统，支持文档上传、语义检索、SSE 流式回答、Agent/Graph 多模式问答与自动联网知识增强。
+<div align="center">
 
-## 项目描述
+Go + Eino + Ark + Milvus 的工程化 RAG 项目，支持流式问答、Agent/Graph 模式、自动联网知识增强、限流与可观测能力。
 
-`go-eino-agent` 是一个可运行的 RAG 工程化示例，目标是把「本地知识库检索 + LLM 生成 + 工具调用」串成一条完整链路，提供可扩展的后端服务与 Web 交互页面。
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
+[![Gin](https://img.shields.io/badge/Gin-1.10-00B386)](https://github.com/gin-gonic/gin)
+[![Eino](https://img.shields.io/badge/Eino-0.7.13-5B6EFF)](https://www.cloudwego.io/docs/eino/)
+[![Milvus](https://img.shields.io/badge/Milvus-2.4.x-0099CC)](https://milvus.io/)
 
-核心能力：
-- 文档上传与入库（`.md` / `.markdown` / `.pdf`）
-- 文档分块、Embedding 向量化、Milvus 检索
-- `SSE` 流式响应
-- `ReAct`、`RAG Agent`、`Multi-Agent`、`Graph` 多种问答模式
-- 本地知识不足时自动联网搜索，并可回写知识库
+</div>
 
-## 技术栈
+## 1. 项目定位
 
-- Go `1.23+`
-- Gin
-- CloudWeGo Eino `v0.7.x`
-- 火山引擎 Ark（ChatModel + Embedding）
-- Milvus `v2.4.x`
+这个项目把 RAG 的核心链路完整打通：
+- 文档上传（Markdown / PDF）-> 分块 -> Embedding -> Milvus 入库
+- 查询检索 -> 上下文构建 -> LLM 生成
+- 支持 `SSE` 流式输出、`ReAct` / `Multi-Agent` / `Graph` 多模式
+- 本地知识不足时自动触发联网搜索，并可回写知识库
 
-## 项目结构
+## 2. 核心能力
+
+| 模块 | 能力 |
+| --- | --- |
+| 检索 | 向量检索 + 去重 + 相关度过滤 + 上下文预算 |
+| 问答 | 基础 RAG、ReAct、RAG Agent、Multi-Agent、Graph |
+| 安全 | CORS 白名单、上传 MIME 校验、IP 限流 |
+| 运维 | 启动参数校验、优雅停机、请求日志、内存指标接口 |
+
+## 3. 架构概览
 
 ```text
-.
-├─ cmd/server/main.go             # 服务入口
-├─ config/config.go               # 配置加载
-├─ internal/
-│  ├─ agent/agent.go              # ReAct / Multi-Agent / RAGAgent
-│  ├─ graph/graph.go              # RAGGraph / MultiStageGraph
-│  ├─ handler/handler.go          # HTTP API + SSE
-│  ├─ rag/service.go              # RAG 检索与智能增强
-│  └─ tool/                       # 热词工具与联网搜索工具
-├─ pkg/
-│  ├─ embedding/service.go        # Embedding 服务
-│  ├─ parser/parser.go            # Markdown / PDF 解析与分块
-│  └─ vectordb/milvus.go          # Milvus 客户端
-├─ web/templates/index.html       # Web 页面
-└─ docs/                          # 示例知识文档
+User
+  -> Gin API (/api/upload, /api/query, /api/search)
+  -> Handler
+     -> RAG Service
+        -> Embedding (Ark)
+        -> Vector DB (Milvus)
+        -> Optional Web Search Tool
+     -> LLM ChatModel (Ark)
 ```
 
-## 快速开始
+## 4. 快速启动
 
-### 1. 克隆仓库
+### 4.1 克隆仓库
 
 ```bash
-git clone https://github.com/Butt3rcup/Agent-eino.git
-cd Agent-eino
+git clone https://github.com/Butt3rcup/Agent-Eino.git
+cd Agent-Eino
 ```
 
-### 2. 准备环境变量
+### 4.2 配置环境变量
 
 ```bash
 cp env.example .env
 ```
 
-至少需要配置：
+最小必填项：
 
 ```bash
-ARK_API_KEY=你的 Ark API Key
-EMBEDDER=ep-xxxxxxxx-xxxx
+ARK_API_KEY=your_api_key
 MODEL=doubao-1-5-pro-32k-250115
+EMBEDDER=ep-xxxxxxxx-xxxx
 MILVUS_URI=localhost:19530
-SERVER_PORT=8080
 ```
 
-说明：
-- `EMBEDDER` 必须是端点 ID（`ep-...`），不是模型名。
-- `EMBEDDING_DIM` 需要和你使用的 Embedding 端点维度一致。
-
-### 3. 启动 Milvus
+### 4.3 启动 Milvus
 
 ```bash
 docker run -d --name milvus ^
@@ -79,47 +74,36 @@ docker run -d --name milvus ^
   milvusdb/milvus:v2.4.0
 ```
 
-> Linux / macOS 可将 `^` 改为 `\`。
+Linux / macOS 请将 `^` 改为 `\`。
 
-### 4. 启动服务
+### 4.4 启动服务
 
 ```bash
 go mod tidy
 go run cmd/server/main.go
 ```
 
-默认访问地址：
-- Web 页面：`http://localhost:8080`
-- 健康检查：`http://localhost:8080/api/health`
+默认访问：
+- Web: `http://localhost:8080`
+- Health: `http://localhost:8080/api/health`
+- Metrics: `http://localhost:8080/api/metrics`
 
-## API 概览
+## 5. API 概览
 
 ### `GET /api/health`
+服务健康状态。
 
-服务健康检查。
+### `GET /api/metrics`
+内存指标快照（请求总量、状态码分布、延迟、在途请求、运行时长）。
 
 ### `POST /api/upload`
-
-上传文档并入库。
-
-`multipart/form-data` 参数：
-- `file`: `.md` / `.markdown` / `.pdf`
+文档上传并索引（支持 `.md` / `.markdown` / `.pdf`，含 MIME 校验）。
 
 ### `POST /api/search`
-
-语义检索。
-
-请求示例：
-
-```json
-{
-  "query": "网络流行语"
-}
-```
+向量检索接口。
 
 ### `POST /api/query`（SSE）
-
-统一问答入口，支持多模式。
+统一问答入口。
 
 请求示例：
 
@@ -130,72 +114,78 @@ go run cmd/server/main.go
 }
 ```
 
-`mode` 可选值：
-- `rag`（默认）：基础 RAG
-- `react`：ReAct Agent
-- `rag_agent`：RAG + Agent
-- `multi-agent`：多 Agent 协作
-- `graph_rag`：Graph 版 RAG
-- `graph_multi`：多阶段 Graph
+`mode` 取值：
+- `rag`（默认）
+- `react`
+- `rag_agent`
+- `multi-agent`
+- `graph_rag`
+- `graph_multi`
 
-## 智能知识增强
+## 6. 关键配置
 
-在 `rag` 流程里，系统会先查本地知识库；当相似度低于阈值时可自动触发联网搜索，并可将搜索结果写回知识库。
+### 6.1 服务与安全
 
-相关配置（`.env`）：
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SERVER_PORT` | `8080` | 服务端口 |
+| `SERVER_HOST` | `0.0.0.0` | 监听地址 |
+| `SERVER_READ_TIMEOUT_SEC` | `15` | 读超时 |
+| `SERVER_WRITE_TIMEOUT_SEC` | `60` | 写超时 |
+| `SERVER_SHUTDOWN_TIMEOUT_SEC` | `10` | 优雅停机超时 |
+| `CORS_ALLOWED_ORIGINS` | `*` | CORS 白名单，逗号分隔 |
+| `TRUSTED_PROXIES` | 空 | Gin 可信代理 |
+| `RATE_LIMIT_RPS` | `20` | 每 IP 每秒令牌补充 |
+| `RATE_LIMIT_BURST` | `40` | 每 IP 桶容量 |
 
-```bash
-ENABLE_AUTO_SEARCH=true
-SIMILARITY_THRESHOLD=1.5
-AUTO_SAVE_SEARCH_RESULT=true
-```
+### 6.2 RAG 检索质量
 
-## 常见问题
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `TOP_K` | `5` | 向量召回数量 |
+| `MAX_CONTEXT_DOCS` | `5` | 上下文最多文档数 |
+| `MAX_CONTEXT_CHARS` | `4000` | 上下文字符预算 |
+| `MAX_SCORE_DELTA` | `1.0` | 相对最佳分数的允许差值（L2） |
+| `SIMILARITY_THRESHOLD` | `1.5` | 自动联网触发阈值（L2） |
 
-### 1) `ARK_API_KEY is required`
+## 7. 观测与运维
 
-未配置 `ARK_API_KEY`，请检查 `.env`。
+- 请求日志：方法、路径、状态码、延迟、IP
+- 指标接口：`/api/metrics`
+- 生命周期：`http.Server + signal` 优雅停机
+- 启动时配置强校验，避免运行期再炸
 
-### 2) Embedding 调用失败
-
-重点确认：
-- `EMBEDDER` 是否是 `ep-...`
-- 端点能力是否支持文本向量化
-- `EMBEDDING_DIM` 是否与端点输出维度一致
-
-### 3) Milvus 连接失败
-
-检查 `MILVUS_URI` 与容器状态：
-
-```bash
-docker ps
-```
-
-## 开发与测试
-
-当前仓库暂无单元测试文件，基础检查建议：
+## 8. 本地开发检查
 
 ```bash
 go test ./...
 go vet ./...
 ```
 
-## 路线图
+当前仓库仍缺少测试文件，建议后续补齐 `handler/rag/graph` 的单测与集成测试。
 
-- 完善 Agent / Graph 模式的前后端联动体验
-- 增加更稳健的输入校验与错误分级
-- 补充单元测试与集成测试
-- 增加容器化部署与生产配置模板
+## 9. 目录结构
 
-## 贡献
+```text
+cmd/server/                 # 入口与中间件
+config/                     # 配置加载与校验
+internal/agent/             # Agent 逻辑
+internal/graph/             # Graph 工作流
+internal/handler/           # HTTP 接口
+internal/rag/               # 检索增强服务
+internal/tool/              # 工具实现
+pkg/embedding/              # Embedding 封装
+pkg/parser/                 # 文档解析
+pkg/vectordb/               # Milvus 封装
+web/templates/              # 页面模板
+```
 
-欢迎提交 Issue / PR：
+## 10. 路线图
 
-1. Fork 仓库
-2. 新建分支：`feature/xxx`
-3. 提交改动并推送
-4. 发起 Pull Request
+- 增加标准化测试基线（单测 + 集成）
+- 接入外部监控（Prometheus / OpenTelemetry）
+- 多环境配置模板与容器编排优化
 
 ---
 
-如果这个项目对你有帮助，欢迎点个 Star。
+如果这个项目对你有帮助，欢迎 Star。

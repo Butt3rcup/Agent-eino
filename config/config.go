@@ -1,9 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -15,6 +17,7 @@ type Config struct {
 	Upload   UploadConfig
 	RAG      RAGConfig
 	LLM      LLMConfig
+	Security SecurityConfig
 }
 
 type ArkConfig struct {
@@ -32,8 +35,13 @@ type MilvusConfig struct {
 }
 
 type ServerConfig struct {
-	Port string
-	Host string
+	Port               string
+	Host               string
+	ReadTimeoutSec     int
+	WriteTimeoutSec    int
+	ShutdownTimeoutSec int
+	TrustedProxies     []string
+	CORSAllowOrigins   []string
 }
 
 type UploadConfig struct {
@@ -42,11 +50,14 @@ type UploadConfig struct {
 }
 
 type RAGConfig struct {
-	EmbeddingModel string
-	EmbeddingDim   int
-	ChunkSize      int
-	ChunkOverlap   int
-	TopK           int
+	EmbeddingModel  string
+	EmbeddingDim    int
+	ChunkSize       int
+	ChunkOverlap    int
+	TopK            int
+	MaxContextDocs  int
+	MaxContextChars int
+	MaxScoreDelta   float32
 
 	// 智能知识增强配置
 	EnableAutoSearch     bool    // 是否启用自动联网搜索
@@ -58,6 +69,11 @@ type LLMConfig struct {
 	Model       string
 	Temperature float64
 	MaxTokens   int
+}
+
+type SecurityConfig struct {
+	RateLimitRPS   float64
+	RateLimitBurst float64
 }
 
 func Load() *Config {
@@ -79,8 +95,13 @@ func Load() *Config {
 			DBName: getEnv("MILVUS_DB_NAME", "hotwords"),
 		},
 		Server: ServerConfig{
-			Port: getEnv("SERVER_PORT", "8080"),
-			Host: getEnv("SERVER_HOST", "0.0.0.0"),
+			Port:               getEnv("SERVER_PORT", "8080"),
+			Host:               getEnv("SERVER_HOST", "0.0.0.0"),
+			ReadTimeoutSec:     getEnvInt("SERVER_READ_TIMEOUT_SEC", 15),
+			WriteTimeoutSec:    getEnvInt("SERVER_WRITE_TIMEOUT_SEC", 60),
+			ShutdownTimeoutSec: getEnvInt("SERVER_SHUTDOWN_TIMEOUT_SEC", 10),
+			TrustedProxies:     getEnvCSV("TRUSTED_PROXIES", ""),
+			CORSAllowOrigins:   getEnvCSV("CORS_ALLOWED_ORIGINS", "*"),
 		},
 		Upload: UploadConfig{
 			MaxSize: getEnvInt64("MAX_UPLOAD_SIZE", 10485760),
@@ -92,6 +113,9 @@ func Load() *Config {
 			ChunkSize:            getEnvInt("CHUNK_SIZE", 500),
 			ChunkOverlap:         getEnvInt("CHUNK_OVERLAP", 50),
 			TopK:                 getEnvInt("TOP_K", 5),
+			MaxContextDocs:       getEnvInt("MAX_CONTEXT_DOCS", 5),
+			MaxContextChars:      getEnvInt("MAX_CONTEXT_CHARS", 4000),
+			MaxScoreDelta:        getFloat32Env("MAX_SCORE_DELTA", 1.0),
 			EnableAutoSearch:     getBoolEnv("ENABLE_AUTO_SEARCH", true),
 			SimilarityThreshold:  getFloat32Env("SIMILARITY_THRESHOLD", 1.5),
 			AutoSaveSearchResult: getBoolEnv("AUTO_SAVE_SEARCH_RESULT", true),
@@ -101,7 +125,70 @@ func Load() *Config {
 			Temperature: getEnvFloat("LLM_TEMPERATURE", 0.7),
 			MaxTokens:   getEnvInt("LLM_MAX_TOKENS", 2000),
 		},
+		Security: SecurityConfig{
+			RateLimitRPS:   getEnvFloat("RATE_LIMIT_RPS", 20),
+			RateLimitBurst: getEnvFloat("RATE_LIMIT_BURST", 40),
+		},
 	}
+}
+
+func (c *Config) Validate() error {
+	if strings.TrimSpace(c.Ark.APIKey) == "" {
+		return fmt.Errorf("ARK_API_KEY is required")
+	}
+	if strings.TrimSpace(c.Ark.Model) == "" {
+		return fmt.Errorf("MODEL is required")
+	}
+	if strings.TrimSpace(c.Ark.Embedder) == "" {
+		return fmt.Errorf("EMBEDDER is required")
+	}
+	if strings.TrimSpace(c.Milvus.URI) == "" {
+		return fmt.Errorf("MILVUS_URI is required")
+	}
+	port, err := strconv.Atoi(c.Server.Port)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("SERVER_PORT must be in range 1-65535")
+	}
+	if c.Server.ReadTimeoutSec <= 0 || c.Server.WriteTimeoutSec <= 0 || c.Server.ShutdownTimeoutSec <= 0 {
+		return fmt.Errorf("server timeout values must be positive")
+	}
+	if c.Upload.MaxSize <= 0 {
+		return fmt.Errorf("MAX_UPLOAD_SIZE must be positive")
+	}
+	if strings.TrimSpace(c.Upload.Dir) == "" {
+		return fmt.Errorf("UPLOAD_DIR is required")
+	}
+	if c.RAG.EmbeddingDim <= 0 {
+		return fmt.Errorf("EMBEDDING_DIM must be positive")
+	}
+	if c.RAG.ChunkSize <= 0 {
+		return fmt.Errorf("CHUNK_SIZE must be positive")
+	}
+	if c.RAG.ChunkOverlap < 0 || c.RAG.ChunkOverlap >= c.RAG.ChunkSize {
+		return fmt.Errorf("CHUNK_OVERLAP must be >=0 and < CHUNK_SIZE")
+	}
+	if c.RAG.TopK <= 0 || c.RAG.TopK > 50 {
+		return fmt.Errorf("TOP_K must be in range 1-50")
+	}
+	if c.RAG.MaxContextDocs <= 0 || c.RAG.MaxContextDocs > 50 {
+		return fmt.Errorf("MAX_CONTEXT_DOCS must be in range 1-50")
+	}
+	if c.RAG.MaxContextChars <= 200 {
+		return fmt.Errorf("MAX_CONTEXT_CHARS must be greater than 200")
+	}
+	if c.RAG.MaxScoreDelta <= 0 {
+		return fmt.Errorf("MAX_SCORE_DELTA must be positive")
+	}
+	if c.RAG.SimilarityThreshold <= 0 {
+		return fmt.Errorf("SIMILARITY_THRESHOLD must be positive")
+	}
+	if c.Security.RateLimitRPS <= 0 || c.Security.RateLimitBurst < 1 {
+		return fmt.Errorf("rate limit config must be positive")
+	}
+	if len(c.Server.CORSAllowOrigins) == 0 {
+		return fmt.Errorf("CORS_ALLOWED_ORIGINS must not be empty")
+	}
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -156,4 +243,17 @@ func getFloat32Env(key string, defaultValue float32) float32 {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvCSV(key, defaultValue string) []string {
+	raw := getEnv(key, defaultValue)
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			values = append(values, item)
+		}
+	}
+	return values
 }
