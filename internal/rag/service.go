@@ -38,6 +38,7 @@ type Service struct {
 	enableAutoSearch bool               // 是否启用自动搜索
 	threshold        float32            // 相似度阈值（L2距离）
 	autoSave         bool               // 是否自动保存搜索结果
+	uploadDir        string             // 文件上传基础目录，从 config.Upload.Dir 读取
 }
 
 func NewService(
@@ -50,6 +51,7 @@ func NewService(
 	enableAutoSearch bool,
 	threshold float32,
 	autoSave bool,
+	uploadDir string,
 ) *Service {
 	return &Service{
 		vectorDB:         vectorDB,
@@ -65,6 +67,7 @@ func NewService(
 		enableAutoSearch: enableAutoSearch,
 		threshold:        threshold,
 		autoSave:         autoSave,
+		uploadDir:        uploadDir,
 	}
 }
 
@@ -210,8 +213,12 @@ func (s *Service) saveSearchResult(ctx context.Context, query, answer string) er
 	hashStr := hex.EncodeToString(hash[:])[:16] // 取前16个字符
 	filename := fmt.Sprintf("%s_%s.md", timestamp, hashStr)
 
-	// 3. 确保目录存在
-	dir := "uploads/auto_knowledge"
+	// 3. 使用配置的上传目录作为基础路径，避免硬编码相对路径
+	baseDir := s.uploadDir
+	if baseDir == "" {
+		baseDir = "./uploads"
+	}
+	dir := filepath.Join(baseDir, "auto_knowledge")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -230,22 +237,6 @@ func (s *Service) saveSearchResult(ctx context.Context, query, answer string) er
 	}
 
 	return nil
-}
-
-// sanitizeFilename 清理文件名中的非法字符
-func sanitizeFilename(s string) string {
-	replacements := map[string]string{
-		"/": "_", "\\": "_", "?": "_", ":": "_",
-		"*": "_", "\"": "_", "<": "_", ">": "_", "|": "_",
-	}
-	for old, new := range replacements {
-		s = strings.ReplaceAll(s, old, new)
-	}
-	// 限制长度
-	if len(s) > 50 {
-		s = s[:50]
-	}
-	return s
 }
 
 // getFirstScore 获取第一个结果的分数，如果没有结果返回无穷大

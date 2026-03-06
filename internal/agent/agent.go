@@ -3,13 +3,14 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 
-	arkComponent "github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
+	"golang.org/x/sync/errgroup"
 
 	hotwordTool "go-eino-agent/internal/tool"
 	"go-eino-agent/pkg/embedding"
@@ -21,16 +22,8 @@ type ReActAgent struct {
 	agent *react.Agent
 }
 
-func NewReActAgent(apiKey, baseURL, modelName string, tools []tool.BaseTool) (*ReActAgent, error) {
-	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-		Model:   modelName,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat model: %w", err)
-	}
-
+// NewReActAgent 使用外部传入的 ToolCallingChatModel 创建 ReAct Agent，避免重复创建模型实例。
+func NewReActAgent(chatModel model.ToolCallingChatModel, tools []tool.BaseTool) (*ReActAgent, error) {
 	reactAgent, err := react.NewAgent(context.Background(), &react.AgentConfig{
 		ToolCallingModel: chatModel,
 		ToolsConfig:      buildToolsConfig(tools),
@@ -78,14 +71,15 @@ type MultiAgentSystem struct {
 	explanationAgent *ReActAgent
 }
 
-func NewMultiAgentSystem(apiKey, baseURL, modelName string, vectorDB *vectordb.MilvusClient, embeddingSvc *embedding.Service) (*MultiAgentSystem, error) {
+// NewMultiAgentSystem 使用外部传入的 ToolCallingChatModel 创建多 Agent 系统，避免重复创建模型实例。
+func NewMultiAgentSystem(chatModel model.ToolCallingChatModel, apiKey, baseURL, modelName string, vectorDB *vectordb.MilvusClient, embeddingSvc *embedding.Service) (*MultiAgentSystem, error) {
 	// 为搜索 Agent 创建火山引擎联网搜索工具
 	webSearchTool, err := hotwordTool.NewVolcanoWebSearchTool(apiKey, baseURL, modelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create web search tool: %w", err)
 	}
 
-	searchAgent, err := NewReActAgent(apiKey, baseURL, modelName, []tool.BaseTool{
+	searchAgent, err := NewReActAgent(chatModel, []tool.BaseTool{
 		hotwordTool.NewHotwordSearchTool(vectorDB, embeddingSvc),
 		webSearchTool,
 	})
@@ -93,14 +87,14 @@ func NewMultiAgentSystem(apiKey, baseURL, modelName string, vectorDB *vectordb.M
 		return nil, fmt.Errorf("failed to create search agent: %w", err)
 	}
 
-	analysisAgent, err := NewReActAgent(apiKey, baseURL, modelName, []tool.BaseTool{
+	analysisAgent, err := NewReActAgent(chatModel, []tool.BaseTool{
 		hotwordTool.NewTrendAnalysisTool(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create analysis agent: %w", err)
 	}
 
-	explanationAgent, err := NewReActAgent(apiKey, baseURL, modelName, []tool.BaseTool{
+	explanationAgent, err := NewReActAgent(chatModel, []tool.BaseTool{
 		hotwordTool.NewExplanationTool(),
 	})
 	if err != nil {
@@ -130,19 +124,50 @@ func (m *MultiAgentSystem) ProcessQuery(ctx context.Context, query string, query
 }
 
 func (m *MultiAgentSystem) comprehensiveProcess(ctx context.Context, query string) (string, error) {
-	searchResult, err := m.searchAgent.Run(ctx, fmt.Sprintf("搜索热词: %s", query))
-	if err != nil {
-		return "", fmt.Errorf("search failed: %w", err)
-	}
+	var (
+		mu                sync.Mutex
+		searchResult      string
+		analysisResult    string
+		explanationResult string
+	)
 
-	analysisResult, err := m.analysisAgent.Run(ctx, fmt.Sprintf("分析热词趋势: %s", query))
-	if err != nil {
-		return "", fmt.Errorf("analysis failed: %w", err)
-	}
+	g, gctx := errgroup.WithContext(ctx)
 
-	explanationResult, err := m.explanationAgent.Run(ctx, fmt.Sprintf("详细解读热词: %s", query))
-	if err != nil {
-		return "", fmt.Errorf("explanation failed: %w", err)
+	g.Go(func() error {
+		res, err := m.searchAgent.Run(gctx, fmt.Sprintf("搜索热词: %s", query))
+		if err != nil {
+			return fmt.Errorf("search failed: %w", err)
+		}
+		mu.Lock()
+		searchResult = res
+		mu.Unlock()
+		return nil
+	})
+
+	g.Go(func() error {
+		res, err := m.analysisAgent.Run(gctx, fmt.Sprintf("分析热词趋势: %s", query))
+		if err != nil {
+			return fmt.Errorf("analysis failed: %w", err)
+		}
+		mu.Lock()
+		analysisResult = res
+		mu.Unlock()
+		return nil
+	})
+
+	g.Go(func() error {
+		res, err := m.explanationAgent.Run(gctx, fmt.Sprintf("详细解读热词: %s", query))
+		if err != nil {
+			return fmt.Errorf("explanation failed: %w", err)
+		}
+		mu.Lock()
+		explanationResult = res
+		mu.Unlock()
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return "", err
 	}
 
 	result := fmt.Sprintf(`
@@ -167,20 +192,12 @@ type RAGAgent struct {
 	ragContext func(context.Context, string) (string, error)
 }
 
+// NewRAGAgent 使用外部传入的 ToolCallingChatModel 创建 RAG Agent，避免重复创建模型实例。
 func NewRAGAgent(
-	apiKey, baseURL, modelName string,
+	chatModel model.ToolCallingChatModel,
 	tools []tool.BaseTool,
 	ragContextFunc func(context.Context, string) (string, error),
 ) (*RAGAgent, error) {
-	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-		Model:   modelName,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat model: %w", err)
-	}
-
 	reactAgent, err := react.NewAgent(context.Background(), &react.AgentConfig{
 		ToolCallingModel: chatModel,
 		ToolsConfig:      buildToolsConfig(tools),
@@ -234,17 +251,9 @@ type SimpleAgent struct {
 	model model.ChatModel
 }
 
-func NewSimpleAgent(apiKey, baseURL, modelName string) (*SimpleAgent, error) {
-	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-		Model:   modelName,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat model: %w", err)
-	}
-
-	return &SimpleAgent{model: chatModel}, nil
+// NewSimpleAgent 使用外部传入的 ChatModel 创建 SimpleAgent。
+func NewSimpleAgent(chatModel model.ChatModel) *SimpleAgent {
+	return &SimpleAgent{model: chatModel}
 }
 
 func (a *SimpleAgent) Chat(ctx context.Context, messages []*schema.Message) (*schema.Message, error) {

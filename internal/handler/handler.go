@@ -72,7 +72,17 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 		return nil, fmt.Errorf("failed to create collection: %w", err)
 	}
 
-	// 创建火山引擎联网搜索工具
+	// 创建共享 ChatModel（所有 Agent / Graph 复用同一实例）
+	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
+		APIKey:  cfg.Ark.APIKey,
+		BaseURL: cfg.Ark.BaseURL,
+		Model:   cfg.Ark.Model,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chat model: %w", err)
+	}
+
+	// 创建火山引擎联网搜索工具（RAG Service 和 Agent 共用同一实例）
 	volcanoSearchTool, err := hotwordTool.NewVolcanoWebSearchTool(
 		cfg.Ark.APIKey,
 		cfg.Ark.BaseURL,
@@ -95,50 +105,33 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 		cfg.RAG.EnableAutoSearch,
 		cfg.RAG.SimilarityThreshold,
 		cfg.RAG.AutoSaveSearchResult,
+		cfg.Upload.Dir, // 传入上传目录，供自动知识保存使用
 	)
-
-	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
-		APIKey:  cfg.Ark.APIKey,
-		BaseURL: cfg.Ark.BaseURL,
-		Model:   cfg.Ark.Model,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat model: %w", err)
-	}
-
-	// 为 Agent 工具集创建火山引擎联网搜索工具
-	agentWebSearchTool, err := hotwordTool.NewVolcanoWebSearchTool(
-		cfg.Ark.APIKey,
-		cfg.Ark.BaseURL,
-		cfg.Ark.Model,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create agent web search tool: %w", err)
-	}
 
 	toolset := []tool.BaseTool{
 		hotwordTool.NewHotwordSearchTool(milvusClient, embeddingSvc),
-		agentWebSearchTool,
+		volcanoSearchTool, // 复用已创建的搜索工具
 		hotwordTool.NewTrendAnalysisTool(),
 		hotwordTool.NewExplanationTool(),
 	}
 
-	reactAgent, err := agent.NewReActAgent(cfg.Ark.APIKey, cfg.Ark.BaseURL, cfg.Ark.Model, toolset)
+	reactAgent, err := agent.NewReActAgent(chatModel, toolset)
 	if err != nil {
 		return nil, err
 	}
 
-	multiAgent, err := agent.NewMultiAgentSystem(cfg.Ark.APIKey, cfg.Ark.BaseURL, cfg.Ark.Model, milvusClient, embeddingSvc)
+	multiAgent, err := agent.NewMultiAgentSystem(chatModel, cfg.Ark.APIKey, cfg.Ark.BaseURL, cfg.Ark.Model, milvusClient, embeddingSvc)
 	if err != nil {
 		return nil, err
 	}
 
-	ragAgent, err := agent.NewRAGAgent(cfg.Ark.APIKey, cfg.Ark.BaseURL, cfg.Ark.Model, toolset, ragService.BuildContext)
+	ragAgent, err := agent.NewRAGAgent(chatModel, toolset, ragService.BuildContext)
 	if err != nil {
 		return nil, err
 	}
 
 	ragGraph, err := graph.NewRAGGraph(&graph.RAGGraphConfig{
+		ChatModel:    chatModel, // 传入共享实例
 		APIKey:       cfg.Ark.APIKey,
 		BaseURL:      cfg.Ark.BaseURL,
 		Model:        cfg.Ark.Model,
@@ -165,6 +158,7 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 	}
 
 	multiGraph, err := graph.NewMultiStageGraph(&graph.MultiStageGraphConfig{
+		ChatModel:  chatModel, // 传入共享实例
 		APIKey:     cfg.Ark.APIKey,
 		BaseURL:    cfg.Ark.BaseURL,
 		Model:      cfg.Ark.Model,
@@ -414,8 +408,8 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 
 	toolCallsShown := make(map[string]bool) // 记录已显示的工具
 	buffer := ""                            // 内容缓存
-	flushThreshold := 50                    // 缓存字符数阈值
-	chunkCount := 0                         // DEBUG: chunk计数
+	flushThreshold := 50                    // 缓存字符数阙值
+	chunkCount := 0                         // chunk 计数
 
 	for {
 		chunk, err := reader.Recv()
@@ -423,7 +417,7 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				logger.Info("[StreamReader] 流结束", zap.Int("totalChunks", chunkCount), zap.String("remainingBuffer", buffer))
+				logger.Info("[StreamReader] 流结束", zap.Int("totalChunks", chunkCount))
 				// 输出剩余缓存
 				if buffer != "" {
 					h.writeSSEMessage(c, flusher, buffer)
@@ -436,7 +430,7 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 		}
 
 		if chunk != nil {
-			logger.Info("[StreamReader] 收到chunk",
+			logger.Debug("[StreamReader] 收到chunk",
 				zap.Int("chunkNum", chunkCount),
 				zap.String("role", string(chunk.Role)),
 				zap.Int("contentLen", len(chunk.Content)),
@@ -446,12 +440,12 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 			if len(chunk.ToolCalls) > 0 {
 				// 检查缓存是否为工具调用描述
 				if buffer != "" && isToolCallDescription(buffer) {
-					logger.Info("[StreamReader] 丢弃工具调用描述", zap.String("buffer", buffer))
+					logger.Debug("[StreamReader] 丢弃工具调用描述", zap.String("buffer", buffer))
 					// 是工具调用描述，丢弃缓存
 					buffer = ""
 				} else if buffer != "" {
 					// 不是工具调用描述，输出缓存
-					logger.Info("[StreamReader] 输出缓存内容", zap.String("buffer", buffer))
+					logger.Debug("[StreamReader] 输出缓存内容", zap.String("buffer", buffer))
 					h.writeSSEMessage(c, flusher, buffer)
 					buffer = ""
 				}
@@ -479,11 +473,10 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 				// 1. 如果遇到句号，判断是否为工具调用描述
 				if strings.Contains(buffer, "。") {
 					if isToolCallDescription(buffer) {
-						logger.Info("[StreamReader] 检测到工具调用描述，丢弃", zap.String("buffer", buffer))
+						logger.Debug("[StreamReader] 检测到工具调用描述，丢弃", zap.String("buffer", buffer))
 						// 是工具调用描述，丢弃
 						buffer = ""
 					} else {
-						logger.Info("[StreamReader] 输出普通内容", zap.String("buffer", buffer))
 						// 不是工具调用描述，输出
 						h.writeSSEMessage(c, flusher, buffer)
 						buffer = ""
@@ -493,7 +486,6 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 
 				// 2. 如果缓存太长且不像工具调用描述，输出
 				if len(buffer) > flushThreshold && !strings.Contains(buffer, "调用") && !strings.Contains(buffer, "函数") {
-					logger.Info("[StreamReader] 缓存超过阈值，输出", zap.String("buffer", buffer))
 					h.writeSSEMessage(c, flusher, buffer)
 					buffer = ""
 				}

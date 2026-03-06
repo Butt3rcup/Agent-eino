@@ -47,17 +47,16 @@ func NewSearchCache(maxSize int, ttl time.Duration) *SearchCache {
 
 // Get 获取缓存结果
 func (c *SearchCache) Get(key string) ([]HotwordResult, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	c.mu.RLock()
 	entry, exists := c.entries[key]
+	c.mu.RUnlock()
+
 	if !exists {
 		return nil, false
 	}
 
-	// 检查是否过期
+	// 检查是否过期（在持锁外判断，避免读锁升写锁）
 	if time.Since(entry.Timestamp) > c.ttl {
-		delete(c.entries, key)
 		return nil, false
 	}
 
@@ -474,45 +473,6 @@ func (t *HotwordSearchTool) cleanText(text string) string {
 	}
 
 	return text
-}
-
-func (t *HotwordSearchTool) mockSearch(keyword string) []HotwordResult {
-	// 模拟数据库
-	mockDB := map[string]HotwordResult{
-		"YYDS": {
-			Word:        "YYDS",
-			Explanation: "永远的神（Yong Yuan De Shen）的缩写，用来表达对某人或某事的极度赞美和崇拜",
-			Example:     "这个选手的操作真是YYDS！",
-			Popularity:  95,
-		},
-		"emo": {
-			Word:        "emo",
-			Explanation: "emotional的缩写，表示情绪化、抑郁、伤感的状态",
-			Example:     "今天又emo了，不想说话",
-			Popularity:  88,
-		},
-		"绝绝子": {
-			Word:        "绝绝子",
-			Explanation: "表示非常好、非常棒的意思，是'绝了'的加强版",
-			Example:     "这个蛋糕的味道绝绝子！",
-			Popularity:  82,
-		},
-	}
-
-	keyword = strings.ToUpper(keyword)
-	if result, ok := mockDB[keyword]; ok {
-		return []HotwordResult{result}
-	}
-
-	// 模糊搜索
-	var results []HotwordResult
-	for k, v := range mockDB {
-		if strings.Contains(strings.ToUpper(k), keyword) || strings.Contains(v.Explanation, keyword) {
-			results = append(results, v)
-		}
-	}
-
-	return results
 }
 
 // TrendAnalysisTool 热词趋势分析工具

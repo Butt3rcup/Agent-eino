@@ -6,11 +6,13 @@ import (
 	"strings"
 
 	arkComponent "github.com/cloudwego/eino-ext/components/model/ark"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 )
 
 type RAGGraphConfig struct {
+	ChatModel    model.ChatModel // 外部传入的共享 ChatModel
 	APIKey       string
 	BaseURL      string
 	Model        string
@@ -23,13 +25,18 @@ type RAGGraph struct {
 }
 
 func NewRAGGraph(config *RAGGraphConfig) (*RAGGraph, error) {
-	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
-		APIKey:  config.APIKey,
-		BaseURL: config.BaseURL,
-		Model:   config.Model,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat model: %w", err)
+	chatModel := config.ChatModel
+	if chatModel == nil {
+		// 当没有外部传入时，尝试使用 APIKey 创建（兼容旧行为）
+		m, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
+			APIKey:  config.APIKey,
+			BaseURL: config.BaseURL,
+			Model:   config.Model,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chat model: %w", err)
+		}
+		chatModel = m
 	}
 
 	g := compose.NewGraph[map[string]any, *schema.Message]()
@@ -117,6 +124,7 @@ func (g *RAGGraph) Stream(ctx context.Context, query string) (*schema.StreamRead
 }
 
 type MultiStageGraphConfig struct {
+	ChatModel  model.ChatModel // 外部传入的共享 ChatModel
 	APIKey     string
 	BaseURL    string
 	Model      string
@@ -129,13 +137,17 @@ type MultiStageGraph struct {
 }
 
 func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error) {
-	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
-		APIKey:  config.APIKey,
-		BaseURL: config.BaseURL,
-		Model:   config.Model,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat model: %w", err)
+	chatModel := config.ChatModel
+	if chatModel == nil {
+		m, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
+			APIKey:  config.APIKey,
+			BaseURL: config.BaseURL,
+			Model:   config.Model,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chat model: %w", err)
+		}
+		chatModel = m
 	}
 
 	tools := config.Tools
@@ -290,7 +302,8 @@ func normalizeIntent(intent string) string {
 	case strings.Contains(v, "search"):
 		return "search"
 	default:
-		return v
+		// 未能识别意图时，回退到 comprehensive 模式作为兼容处理
+		return "comprehensive"
 	}
 }
 

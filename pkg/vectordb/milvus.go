@@ -139,9 +139,12 @@ func (m *MilvusClient) Insert(ctx context.Context, docs []Document) error {
 		return fmt.Errorf("failed to insert documents: %w", err)
 	}
 
-	if err := m.client.Flush(ctx, CollectionName, false); err != nil {
-		return fmt.Errorf("failed to flush: %w", err)
-	}
+	// 异步 Flush，避免每次插入都同步阻塞等待刷盘
+	go func() {
+		if err := m.client.Flush(context.Background(), CollectionName, false); err != nil {
+			log.Printf("[Milvus] async flush failed: %v", err)
+		}
+	}()
 
 	return nil
 }
