@@ -14,6 +14,8 @@ import (
 	"time"
 
 	arkComponent "github.com/cloudwego/eino-ext/components/model/ark"
+	"github.com/cloudwego/eino-ext/components/model/ollama"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
@@ -32,7 +34,7 @@ import (
 type Handler struct {
 	cfg          *config.Config
 	ragService   *rag.Service
-	chatModel    *arkComponent.ChatModel
+	chatModel    model.ChatModel
 	milvusClient *vectordb.MilvusClient
 
 	reactAgent *agent.ReActAgent
@@ -73,13 +75,33 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 	}
 
 	// 创建共享 ChatModel（所有 Agent / Graph 复用同一实例）
-	chatModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
-		APIKey:  cfg.Ark.APIKey,
-		BaseURL: cfg.Ark.BaseURL,
-		Model:   cfg.Ark.Model,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat model: %w", err)
+	var tcChatModel model.ToolCallingChatModel
+	var baseChatModel model.ChatModel
+	if cfg.Ollama.BaseURL != "" && cfg.Ollama.Model != "" {
+		// 使用本地 Ollama 模型
+		ollamaModel, err := ollama.NewChatModel(context.Background(), &ollama.ChatModelConfig{
+			BaseURL: cfg.Ollama.BaseURL,
+			Model:   cfg.Ollama.Model,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ollama chat model: %w", err)
+		}
+		tcChatModel = ollamaModel
+		baseChatModel = ollamaModel
+		logger.Info("Using local Ollama model", zap.String("baseURL", cfg.Ollama.BaseURL), zap.String("model", cfg.Ollama.Model))
+	} else {
+		// 回退使用火山引擎 Ark 模型
+		arkModel, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
+			APIKey:  cfg.Ark.APIKey,
+			BaseURL: cfg.Ark.BaseURL,
+			Model:   cfg.Ark.Model,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ark chat model: %w", err)
+		}
+		tcChatModel = arkModel
+		baseChatModel = arkModel
+		logger.Info("Using Ark model", zap.String("baseURL", cfg.Ark.BaseURL), zap.String("model", cfg.Ark.Model))
 	}
 
 	// 创建火山引擎联网搜索工具（RAG Service 和 Agent 共用同一实例）
@@ -115,23 +137,23 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 		hotwordTool.NewExplanationTool(),
 	}
 
-	reactAgent, err := agent.NewReActAgent(chatModel, toolset)
+	reactAgent, err := agent.NewReActAgent(tcChatModel, toolset)
 	if err != nil {
 		return nil, err
 	}
 
-	multiAgent, err := agent.NewMultiAgentSystem(chatModel, cfg.Ark.APIKey, cfg.Ark.BaseURL, cfg.Ark.Model, milvusClient, embeddingSvc)
+	multiAgent, err := agent.NewMultiAgentSystem(tcChatModel, cfg.Ark.APIKey, cfg.Ark.BaseURL, cfg.Ark.Model, milvusClient, embeddingSvc)
 	if err != nil {
 		return nil, err
 	}
 
-	ragAgent, err := agent.NewRAGAgent(chatModel, toolset, ragService.BuildContext)
+	ragAgent, err := agent.NewRAGAgent(tcChatModel, toolset, ragService.BuildContext)
 	if err != nil {
 		return nil, err
 	}
 
 	ragGraph, err := graph.NewRAGGraph(&graph.RAGGraphConfig{
-		ChatModel:    chatModel, // 传入共享实例
+		ChatModel:    baseChatModel, // 传入基础 ChatModel 接口
 		APIKey:       cfg.Ark.APIKey,
 		BaseURL:      cfg.Ark.BaseURL,
 		Model:        cfg.Ark.Model,
@@ -158,7 +180,7 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 	}
 
 	multiGraph, err := graph.NewMultiStageGraph(&graph.MultiStageGraphConfig{
-		ChatModel:  chatModel, // 传入共享实例
+		ChatModel:  baseChatModel, // 传入基础 ChatModel 接口
 		APIKey:     cfg.Ark.APIKey,
 		BaseURL:    cfg.Ark.BaseURL,
 		Model:      cfg.Ark.Model,
@@ -172,7 +194,7 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 	return &Handler{
 		cfg:          cfg,
 		ragService:   ragService,
-		chatModel:    chatModel,
+		chatModel:    baseChatModel,
 		milvusClient: milvusClient,
 		reactAgent:   reactAgent,
 		multiAgent:   multiAgent,

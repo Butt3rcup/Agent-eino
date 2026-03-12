@@ -17,6 +17,7 @@ type Config struct {
 	Upload   UploadConfig
 	RAG      RAGConfig
 	LLM      LLMConfig
+	Ollama   OllamaConfig
 	Security SecurityConfig
 }
 
@@ -26,6 +27,11 @@ type ArkConfig struct {
 	Region   string
 	Model    string
 	Embedder string
+}
+
+type OllamaConfig struct {
+	BaseURL string
+	Model   string
 }
 
 type MilvusConfig struct {
@@ -124,6 +130,10 @@ func Load() *Config {
 			Model:       getEnv("LLM_MODEL", "gpt-4o-mini"),
 			Temperature: getEnvFloat("LLM_TEMPERATURE", 0.7),
 			MaxTokens:   getEnvInt("LLM_MAX_TOKENS", 2000),
+		},
+		Ollama: OllamaConfig{
+			BaseURL: getEnv("OLLAMA_BASE_URL", ""),
+			Model:   getEnv("OLLAMA_MODEL", ""),
 		},
 		Security: SecurityConfig{
 			RateLimitRPS:   getEnvFloat("RATE_LIMIT_RPS", 20),
