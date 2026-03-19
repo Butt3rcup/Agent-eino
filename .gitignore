@@ -5,3 +5,5 @@ tmp/
 dist/
 node_modules/
 .DS_Store
+.gocache/
+.gopath/

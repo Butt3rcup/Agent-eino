@@ -4,646 +4,742 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg: #060b19;
+            --panel: rgba(9, 16, 31, 0.85);
+            --panel-strong: #0f172a;
+            --border: rgba(148, 163, 184, 0.18);
+            --text: #e2e8ff;
+            --muted: #94a3b8;
+            --brand: #7c9cff;
+            --brand-2: #8b5cf6;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --radius: 22px;
+            --shadow: 0 35px 60px rgba(2, 6, 23, 0.55);
         }
+
+        * { box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
             min-height: 100vh;
-            padding: 20px;
+            font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(124, 156, 255, 0.35), transparent 45%),
+                radial-gradient(circle at top right, rgba(139, 92, 246, 0.28), transparent 40%),
+                linear-gradient(180deg, #050914 0%, #03050b 100%);
+            color: var(--text);
         }
 
-        .container {
-            max-width: 1400px;
+        .page {
+            width: min(1400px, calc(100vw - 32px));
             margin: 0 auto;
+            padding: 32px 0 48px;
         }
 
-        .header {
-            text-align: center;
-            color: white;
-            margin-bottom: 40px;
-            animation: fadeInDown 0.8s ease-out;
-        }
-
-        .header h1 {
-            font-size: 3em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
-        }
-
-        .header .subtitle {
-            font-size: 1.2em;
-            opacity: 0.9;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .header .badge {
-            background: rgba(255, 255, 255, 0.2);
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.9em;
-            backdrop-filter: blur(10px);
-        }
-
-        .main-content {
+        .hero {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1.1fr 0.9fr;
             gap: 24px;
-            margin-bottom: 24px;
-        }
-
-        .card {
-            background: white;
-            border-radius: 16px;
             padding: 32px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-            transition: all 0.3s ease;
-            animation: fadeInUp 0.8s ease-out;
+            border-radius: 32px;
+            background: linear-gradient(135deg, rgba(13, 21, 39, 0.95), rgba(6, 10, 22, 0.9));
+            border: 1px solid rgba(124, 156, 255, 0.25);
+            box-shadow: var(--shadow);
         }
 
-        .card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+        .hero h1 {
+            margin: 0 0 16px;
+            font-size: clamp(32px, 4vw, 54px);
+            letter-spacing: -0.03em;
         }
 
-        .card h2 {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 24px;
-            font-size: 1.6em;
+        .hero p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.8;
+        }
+
+        .badge-row, .metric-row, .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .badge {
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.05);
+            font-size: 13px;
+        }
+
+        .metric-card {
+            flex: 1;
+            min-width: 160px;
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.03);
+            text-align: right;
+        }
+
+        .metric-card span {
+            display: block;
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.04em;
+        }
+
+        .layout {
+            margin-top: 28px;
+            display: grid;
+            grid-template-columns: 360px minmax(0, 1fr);
+            gap: 24px;
+        }
+
+        .panel {
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+        }
+
+        .panel-header {
+            padding: 20px 24px 12px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .panel-header h2 {
+            margin: 0;
+            font-size: 18px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            justify-content: space-between;
+            gap: 12px;
         }
 
-        .upload-area {
-            border: 2px dashed #667eea;
-            border-radius: 12px;
-            padding: 50px 30px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+        .panel-header small {
+            color: var(--muted);
+            font-size: 12px;
         }
 
-        .upload-area:hover {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-            border-color: #764ba2;
-            transform: scale(1.02);
+        .panel-body {
+            padding: 22px 24px 24px;
         }
 
-        .upload-area input[type="file"] {
-            display: none;
-        }
-
-        .upload-icon {
-            font-size: 4em;
-            margin-bottom: 16px;
-            animation: bounce 2s infinite;
-        }
-
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-
-        .form-group {
-            margin-bottom: 24px;
-        }
-
-        .form-group label {
+        label {
             display: block;
-            margin-bottom: 10px;
-            color: #333;
+            margin-bottom: 8px;
             font-weight: 600;
-            font-size: 0.95em;
+            font-size: 13px;
         }
 
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
+        input, textarea, select {
             width: 100%;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: rgba(12, 20, 38, 0.75);
+            color: var(--text);
             padding: 14px 16px;
-            border: 2px solid #e8e8e8;
-            border-radius: 10px;
-            font-size: 1em;
-            transition: all 0.3s;
             font-family: inherit;
+            font-size: 14px;
         }
 
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
+        textarea { min-height: 120px; line-height: 1.6; }
+
+        input:focus, textarea:focus, select:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: rgba(124, 156, 255, 0.85);
+            box-shadow: 0 0 0 4px rgba(124, 156, 255, 0.12);
         }
 
-        .form-group textarea {
-            resize: vertical;
-            min-height: 120px;
-            line-height: 1.6;
+        .dropzone {
+            margin-bottom: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1.5px dashed rgba(124, 156, 255, 0.5);
+            border-radius: 18px;
+            background: rgba(124, 156, 255, 0.08);
         }
+
+        .dropzone input { display: none; }
 
         .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 14px 32px;
-            border-radius: 10px;
-            font-size: 1.05em;
+            border: 0;
+            border-radius: 16px;
+            padding: 13px 16px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s;
-            width: 100%;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            color: white;
+            transition: transform 0.2s;
         }
 
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-primary {
+            background: linear-gradient(130deg, var(--brand), var(--brand-2));
+            box-shadow: 0 18px 24px rgba(124, 156, 255, 0.3);
         }
 
-        .btn:active:not(:disabled) {
-            transform: translateY(0);
+        .btn-outline {
+            background: transparent;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            color: var(--text);
         }
 
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            box-shadow: none;
+        .status-box {
+            border-radius: 18px;
+            padding: 14px 16px;
+            font-size: 13px;
+            line-height: 1.7;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.04);
         }
 
-        .result-area {
-            background: linear-gradient(135deg, #f8f9ff 0%, #f5f7ff 100%);
-            border-radius: 12px;
-            padding: 24px;
-            margin-top: 24px;
-            min-height: 300px;
-            max-height: 600px;
+        .status-success { border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.12); }
+        .status-error { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.12); }
+        .status-info { border-color: rgba(124, 156, 255, 0.35); background: rgba(124, 156, 255, 0.12); }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+            gap: 20px;
+        }
+
+        .shell {
+            min-height: 420px;
+            border-radius: 22px;
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            background: rgba(5, 9, 19, 0.7);
+            padding: 22px;
             overflow-y: auto;
-            border: 2px solid #e8e8f8;
         }
 
-        .result-area::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .result-area::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 4px;
-        }
-
-        .result-area::-webkit-scrollbar-thumb {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 4px;
-        }
-
-        .result-content {
-            color: #333;
+        .shell pre,
+        .shell p,
+        .shell div {
+            margin: 0;
             line-height: 1.8;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            font-size: 1.05em;
+            color: var(--text);
         }
 
-        /* 工具调用信息卡片 */
-        .tool-call {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
-            border-left: 4px solid #667eea;
-            border-radius: 8px;
+        .search-card {
+            margin-bottom: 14px;
             padding: 16px;
-            margin: 12px 0;
-            animation: slideInLeft 0.4s ease-out;
+            border-radius: 18px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: rgba(255, 255, 255, 0.03);
         }
 
-        .tool-call-header {
-            font-weight: 600;
-            color: #667eea;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .search-card h4 { margin: 0 0 8px; font-size: 15px; }
+        .search-card p { margin: 0; color: #cdd6f2; font-size: 14px; }
 
-        .tool-call-body {
-            color: #555;
-            font-size: 0.95em;
-            padding-left: 24px;
-        }
-
-        @keyframes slideInLeft {
-            from {
-                opacity: 0;
-                transform: translateX(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        /* 信息提示 */
-        .info-message {
-            background: linear-gradient(135deg, rgba(52, 152, 219, 0.1) 0%, rgba(41, 128, 185, 0.1) 100%);
-            border-left: 4px solid #3498db;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin: 12px 0;
-            color: #2c3e50;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .streaming-cursor {
+        .tag {
             display: inline-block;
-            width: 8px;
-            height: 20px;
-            background: #667eea;
-            animation: blink 1s infinite;
-            margin-left: 2px;
-        }
-
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            font-size: 11px;
+            margin-right: 10px;
+            margin-top: 10px;
         }
 
         .loading {
-            text-align: center;
-            padding: 60px 20px;
-            color: #667eea;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #dce3ff;
         }
 
-        .loading-spinner {
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+            border: 2px solid rgba(124, 156, 255, 0.25);
+            border-top-color: var(--brand);
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .cursor {
             display: inline-block;
-            width: 50px;
-            height: 50px;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #667eea;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 16px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .status-message {
-            padding: 14px 18px;
-            border-radius: 10px;
-            margin-top: 12px;
-            font-size: 0.95em;
-            animation: slideIn 0.3s ease-out;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .status-success {
-            background: #d4edda;
-            color: #155724;
-            border: 2px solid #c3e6cb;
-        }
-
-        .status-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 2px solid #f5c6cb;
-        }
-
-        .placeholder {
-            color: #999;
-            text-align: center;
-            padding: 60px 20px;
-            font-size: 1.1em;
-        }
-
-        /* 模式说明卡片 */
-        .mode-info {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
-            border-radius: 8px;
-            padding: 12px;
-            margin-top: 8px;
-            font-size: 0.9em;
-            color: #666;
-            display: none;
-        }
-
-        .mode-info.show {
-            display: block;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        @keyframes fadeInDown {
-            from {
-                opacity: 0;
-                transform: translateY(-30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            width: 10px;
+            height: 18px;
+            margin-left: 4px;
+            border-radius: 3px;
+            background: linear-gradient(120deg, var(--brand), var(--brand-2));
+            animation: blink 1s step-end infinite;
         }
 
         @media (max-width: 1024px) {
-            .main-content {
+            .hero, .layout, .content-grid {
                 grid-template-columns: 1fr;
             }
+
+            .metric-row { flex-direction: column; }
         }
 
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2em;
-            }
-
-            .card {
-                padding: 24px;
-            }
+        @media (max-width: 720px) {
+            .hero { padding: 22px; }
+            .panel-body, .panel-header, .shell { padding: 18px; }
+            .btn { width: 100%; }
+            .chip-row { flex-direction: column; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🔥 智能知识增强系统</h1>
-            <div class="subtitle">
-                <span>基于火山引擎 Ark 的智能检索增强生成系统</span>
-                <span class="badge">v2.0-enhanced</span>
-                <span class="badge">🚀 自动联网搜索</span>
+<div class="page">
+    <section class="hero">
+        <div>
+            <div class="badge-row">
+                <span class="badge">Go + Eino + Milvus</span>
+                <span class="badge">RAG / Agent / Graph</span>
+                <span class="badge">SSE Streaming</span>
+            </div>
+            <h1>网络热词 RAG 系统</h1>
+            <p>上传你自己的热词文档，快速检索对应上下文，再用流式问答聚合答案。后端会把低相关的查询说清楚，不再胡乱塞一堆结果。</p>
+        </div>
+        <div class="metric-row" id="metricRow">
+            <div class="metric-card">
+                <span class="metric-label">服务状态</span>
+                <span class="metric-value" id="metricHealth">--</span>
+                <span class="metric-label" id="metricVersion">等待检测</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">请求总量</span>
+                <span class="metric-value" id="metricRequests">--</span>
+                <span class="metric-label" id="metricLatency">平均延迟 -- ms</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">运行时长</span>
+                <span class="metric-value" id="metricUptime">--</span>
+                <span class="metric-label" id="metricInflight">在途请求 --</span>
             </div>
         </div>
+    </section>
 
-        <div class="main-content">
-            <!-- 文件上传区域 -->
-            <div class="card">
-                <h2>📁 文档上传</h2>
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">📄</div>
-                    <p style="font-size: 1.1em; margin-bottom: 8px;"><strong>点击或拖拽文件到此处上传</strong></p>
-                    <p style="font-size: 0.9em; color: #666;">
-                        支持 Markdown 和 PDF 文件，最大 10MB
-                    </p>
-                    <input type="file" id="fileInput" accept=".md,.pdf,.markdown">
+    <div class="layout">
+        <aside>
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>📥 文档上传 <small>Markdown / PDF</small></h2>
                 </div>
-                <div id="uploadStatus"></div>
-            </div>
-
-            <!-- 查询区域 -->
-            <div class="card">
-                <h2>💬 智能问答</h2>
-                <form id="queryForm">
-                    <div class="form-group">
-                        <label for="mode">查询模式</label>
-                        <select id="mode" required>
-                            <option value="rag">🎯 智能RAG - 自动联网增强</option>
-                            <option value="react">🤖 ReAct Agent - 智能工具调用</option>
-                            <option value="rag_agent">📚 RAG Agent - 增强型检索</option>
-                            <option value="multi-agent">🌐 Multi-Agent - 多智能体协作</option>
-                        </select>
-                        <div id="modeInfo" class="mode-info"></div>
+                <div class="panel-body">
+                    <label class="dropzone" for="fileInput">
+                        <strong id="fileLabel">点击选择文件或拖进来</strong>
+                        <p>支持 .md / .markdown / .pdf，会自动切块并写入 Milvus。</p>
+                        <input type="file" id="fileInput" accept=".md,.markdown,.pdf">
+                    </label>
+                    <div class="chip-row" style="margin-bottom:12px;">
+                        <button class="btn btn-primary" id="uploadBtn">上传并入库</button>
+                        <button class="btn btn-outline" id="clearFileBtn" type="button">清空</button>
                     </div>
-                    <div class="form-group">
-                        <label for="query">输入你的问题</label>
-                        <textarea id="query" placeholder="例如：Rust编程语言2026年最新特性&#10;Python 2026年新增的AI相关库有哪些&#10;什么是YYDS？它是怎么流行起来的？" required></textarea>
-                    </div>
-                    <button type="submit" class="btn" id="queryBtn">🚀 开始查询</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- 结果展示区域 -->
-        <div class="card" style="animation-delay: 0.2s;">
-            <h2>📊 智能回答</h2>
-            <div class="result-area" id="resultArea">
-                <div class="placeholder">💡 查询结果将以流式方式实时显示在这里...<br><br>
-                    <small style="color: #aaa;">
-                        💫 新功能：当本地知识库不足时，系统会自动联网搜索最新信息<br>
-                        🔖 搜索结果会自动保存到知识库，下次查询可直接使用
-                    </small>
+                    <div id="uploadStatus" class="status-box status-info">还没上传文件，先挑个文档。</div>
                 </div>
-            </div>
-        </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>🔍 检索验证 <small>命中与否说清楚</small></h2>
+                </div>
+                <div class="panel-body">
+                    <label for="searchInput">查询内容</label>
+                    <input id="searchInput" type="text" placeholder="YYDS 是什么意思？">
+                    <div class="chip-row" style="margin: 18px 0;">
+                        <button class="btn btn-primary" id="searchBtn">执行检索</button>
+                        <button class="btn btn-outline" id="useSearchExampleBtn" type="button">示例</button>
+                        <button class="btn btn-outline" id="clearSearchBtn" type="button">清空结果</button>
+                    </div>
+                    <div id="searchSummary" class="status-box status-info">结果会显示在右侧卡片；空结果会告诉你 reason。</div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>🧭 操作建议 <small>先搜再问</small></h2>
+                </div>
+                <div class="panel-body">
+                    <div class="status-box" style="margin-bottom:12px;">
+                        1. 先上传文档，让知识库有料。<br>
+                        2. 先检索看看召回质量。<br>
+                        3. 再用问答整合，结果更靠谱。
+                    </div>
+                    <div class="status-box status-info">没搜到内容时会直接告诉你“这次没命中”，别浪费时间盯着空结果，换个说法或补充关键词就行。</div>
+                </div>
+            </section>
+        </aside>
+
+        <main>
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>💬 流式问答 <small>RAG / Agent / Graph</small></h2>
+                </div>
+                <div class="panel-body">
+                    <label for="queryInput">问题</label>
+                    <textarea id="queryInput" placeholder="请解释一下 YYDS 的含义，并给出自然的使用示例。"></textarea>
+                    <label for="modeSelect" style="margin-top:18px;">模式</label>
+                    <select id="modeSelect">
+                        <option value="rag">RAG（推荐）</option>
+                        <option value="react">ReAct</option>
+                        <option value="rag_agent">RAG Agent</option>
+                        <option value="multi-agent">Multi-Agent</option>
+                        <option value="graph_rag">Graph RAG</option>
+                        <option value="graph_multi">Graph Multi</option>
+                    </select>
+                    <div class="chip-row" style="margin: 20px 0;">
+                        <button class="btn btn-primary" id="queryBtn">开始问答</button>
+                        <button class="btn btn-outline" id="useQueryExampleBtn" type="button">示例</button>
+                        <button class="btn btn-outline" id="clearAnswerBtn" type="button">清空回答</button>
+                    </div>
+
+                    <div class="content-grid">
+                        <div>
+                            <div class="chip-row" style="margin-bottom: 12px;">
+                                <span class="badge">实时 SSE 输出</span>
+                                <span class="badge">联网提示</span>
+                            </div>
+                            <div id="answerShell" class="shell">
+                                <div class="status-box status-info">还未开始问答，先上传+检索，再把问题扔进来。</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="chip-row" style="margin-bottom: 12px;">
+                                <span class="badge">检索命中内容</span>
+                            </div>
+                            <div id="searchResultShell" class="shell">
+                                <div class="status-box status-info">检索结果会显示在这里。空结果会返回理由，不会再胡乱塞八竿子打不着的片段。</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
     </div>
+</div>
 
-    <script>
-        // 模式说明
-        const modeDescriptions = {
-            'rag': '🎯 <strong>智能RAG模式</strong>：首先搜索本地知识库，若相关度不足会自动联网搜索最新信息，并将结果自动保存到知识库',
-            'react': '🤖 <strong>ReAct Agent模式</strong>：智能推理和行动，自动选择合适的工具（热词搜索、趋势分析、联网搜索等）来回答问题',
-            'rag_agent': '📚 <strong>RAG Agent模式</strong>：增强型检索代理，结合多轮推理和知识库检索提供深度回答',
-            'multi-agent': '🌐 <strong>Multi-Agent模式</strong>：多个专业智能体协作，提供全面深入的分析和回答'
-        };
+<script>
+const state = { answer: '', search: [] };
+const fileInput = document.getElementById('fileInput');
+const fileLabel = document.getElementById('fileLabel');
+const uploadBtn = document.getElementById('uploadBtn');
+const clearFileBtn = document.getElementById('clearFileBtn');
+const uploadStatus = document.getElementById('uploadStatus');
+const searchInput = document.getElementById('searchInput');
+const searchBtn = document.getElementById('searchBtn');
+const useSearchExampleBtn = document.getElementById('useSearchExampleBtn');
+const clearSearchBtn = document.getElementById('clearSearchBtn');
+const searchSummary = document.getElementById('searchSummary');
+const searchResultShell = document.getElementById('searchResultShell');
+const queryInput = document.getElementById('queryInput');
+const modeSelect = document.getElementById('modeSelect');
+const queryBtn = document.getElementById('queryBtn');
+const useQueryExampleBtn = document.getElementById('useQueryExampleBtn');
+const clearAnswerBtn = document.getElementById('clearAnswerBtn');
+const answerShell = document.getElementById('answerShell');
+const metricHealth = document.getElementById('metricHealth');
+const metricVersion = document.getElementById('metricVersion');
+const metricRequests = document.getElementById('metricRequests');
+const metricLatency = document.getElementById('metricLatency');
+const metricUptime = document.getElementById('metricUptime');
+const metricInflight = document.getElementById('metricInflight');
 
-        const modeSelect = document.getElementById('mode');
-        const modeInfo = document.getElementById('modeInfo');
+fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    fileLabel.textContent = file ? `已选择：${file.name}` : '点击选择文件或拖进来';
+});
 
-        // 显示模式说明
-        function updateModeInfo() {
-            const selectedMode = modeSelect.value;
-            modeInfo.innerHTML = modeDescriptions[selectedMode] || '';
-            modeInfo.classList.add('show');
+clearFileBtn.addEventListener('click', () => {
+    fileInput.value = '';
+    fileLabel.textContent = '点击选择文件或拖进来';
+    setStatus(uploadStatus, '还没上传文件，先挑个文档。', 'info');
+});
+
+useSearchExampleBtn.addEventListener('click', () => {
+    searchInput.value = 'YYDS 是什么意思';
+    searchInput.focus();
+});
+
+useQueryExampleBtn.addEventListener('click', () => {
+    queryInput.value = '请解释一下 YYDS 的含义，并给出自然的使用示例。';
+    modeSelect.value = 'rag';
+    queryInput.focus();
+});
+
+clearSearchBtn.addEventListener('click', resetSearchArea);
+clearAnswerBtn.addEventListener('click', () => resetAnswerArea());
+
+uploadBtn.addEventListener('click', handleUpload);
+searchBtn.addEventListener('click', handleSearch);
+queryBtn.addEventListener('click', handleQuery);
+
+async function refreshMetrics() {
+    try {
+        const [healthResp, metricsResp] = await Promise.all([
+            fetch('/api/health'),
+            fetch('/api/metrics')
+        ]);
+        const health = await healthResp.json();
+        const metrics = await metricsResp.json();
+        metricHealth.textContent = health.status === 'ok' ? '在线' : '异常';
+        metricVersion.textContent = `版本 ${health.version || '--'}`;
+        metricRequests.textContent = metrics.total_requests ?? '--';
+        metricLatency.textContent = `平均延迟 ${Number(metrics.avg_latency_ms || 0).toFixed(2)} ms`;
+        metricUptime.textContent = formatUptime(metrics.uptime_sec || 0);
+        metricInflight.textContent = `在途 ${metrics.in_flight ?? '--'}`;
+    } catch (err) {
+        metricHealth.textContent = '离线';
+        metricVersion.textContent = '接口暂未连接';
+        metricRequests.textContent = '--';
+        metricLatency.textContent = '平均延迟 --';
+        metricUptime.textContent = '--';
+        metricInflight.textContent = '在途 --';
+    }
+}
+
+async function handleUpload() {
+    const file = fileInput.files[0];
+    if (!file) {
+        setStatus(uploadStatus, '先选文件，别让上传按钮白挨点。', 'error');
+        return;
+    }
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '上传中...';
+    setStatus(uploadStatus, `正在上传 ${file.name}，稍等。`, 'info');
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || '上传失败');
+        setStatus(uploadStatus, `上传成功：${data.filename}`, 'success');
+        refreshMetrics();
+    } catch (err) {
+        setStatus(uploadStatus, `上传失败：${err.message}`, 'error');
+    } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = '上传并入库';
+    }
+}
+
+async function handleSearch() {
+    const query = searchInput.value.trim();
+    if (!query) {
+        setStatus(searchSummary, '检索词还没写。', 'error');
+        return;
+    }
+    searchBtn.disabled = true;
+    searchBtn.textContent = '检索中...';
+    searchResultShell.innerHTML = loadingMarkup('正在检索向量库...');
+    try {
+        const resp = await fetch('/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || '检索失败');
+        state.search = data.results || [];
+        if (!data.matched || state.search.length === 0) {
+            searchResultShell.innerHTML = emptyMarkup('🫥', '没有相关结果', '没查到相关内容，再换个问法或者加点上下文。');
+            setStatus(searchSummary, '这次没命中，换个说法再来一遍。', 'info');
+        } else {
+            searchResultShell.innerHTML = renderSearch(state.search);
+            setStatus(searchSummary, `命中 ${data.count} 条结果。`, 'success');
         }
+        refreshMetrics();
+    } catch (err) {
+        searchResultShell.innerHTML = emptyMarkup('⚠️', '检索失败', err.message);
+        setStatus(searchSummary, `检索失败：${err.message}`, 'error');
+    } finally {
+        searchBtn.disabled = false;
+        searchBtn.textContent = '执行检索';
+    }
+}
 
-        modeSelect.addEventListener('change', updateModeInfo);
-        updateModeInfo(); // 初始化显示
-
-        // 文件上传
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const uploadStatus = document.getElementById('uploadStatus');
-
-        uploadArea.addEventListener('click', () => fileInput.click());
-
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = '#764ba2';
-            uploadArea.style.transform = 'scale(1.02)';
+async function handleQuery() {
+    const query = queryInput.value.trim();
+    if (!query) {
+        resetAnswerArea('🧠', '还没输入问题', '先填问题再问。');
+        return;
+    }
+    queryBtn.disabled = true;
+    queryBtn.textContent = '问答中...';
+    state.answer = '';
+    answerShell.innerHTML = '<div class="loading"><span class="spinner"></span><span>正在流式输出...</span></div>';
+    try {
+        const resp = await fetch('/api/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, mode: modeSelect.value })
         });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.style.borderColor = '#667eea';
-            uploadArea.style.transform = 'scale(1)';
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = '#667eea';
-            uploadArea.style.transform = 'scale(1)';
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFileUpload(files[0]);
-            }
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                handleFileUpload(e.target.files[0]);
-            }
-        });
-
-        async function handleFileUpload(file) {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            uploadStatus.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>上传中...</p></div>';
-
-            try {
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    uploadStatus.innerHTML = `<div class="status-message status-success">✓ ${data.message || '上传成功'}</div>`;
-                } else {
-                    uploadStatus.innerHTML = `<div class="status-message status-error">✗ ${data.error || '上传失败'}</div>`;
-                }
-            } catch (error) {
-                uploadStatus.innerHTML = `<div class="status-message status-error">✗ 上传失败: ${error.message}</div>`;
-            }
-        }
-
-        // 流式查询处理
-        const queryForm = document.getElementById('queryForm');
-        const queryBtn = document.getElementById('queryBtn');
-        const resultArea = document.getElementById('resultArea');
-
-        queryForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const query = document.getElementById('query').value;
-            const mode = document.getElementById('mode').value;
-
-            queryBtn.disabled = true;
-            queryBtn.textContent = '⏳ 查询中...';
-            resultArea.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>正在思考...</p></div>';
-
-            try {
-                const response = await fetch('/api/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ query, mode })
-                });
-
-                if (!response.ok) {
-                    throw new Error('查询失败');
-                }
-
-                // 处理流式响应
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                let fullAnswer = '';
-
-                resultArea.innerHTML = '<div class="result-content"><span class="streaming-cursor"></span></div>';
-                const contentDiv = resultArea.querySelector('.result-content');
-
-                while (true) {
-                    const { done, value } = await reader.read();
-
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n\n');
-                    buffer = lines.pop() || '';
-
-                    for (const chunk of lines) {
-                        if (!chunk.trim()) continue;
-
-                        const chunkLines = chunk.split('\n');
-                        let eventType = '';
-                        let data = '';
-
-                        for (const line of chunkLines) {
-                            if (line.startsWith('event:')) {
-                                eventType = line.slice(6).trim();
-                            } else if (line.startsWith('data:')) {
-                                data = line.slice(5).trim();
-                            }
-                        }
-
-                        if (eventType === 'message' && data) {
-                            try {
-                                const parsed = JSON.parse(data);
-                                if (parsed.content) {
-                                    const content = parsed.content;
-
-                                    // 检测特殊信息（联网搜索提示）
-                                    if (content.includes('ℹ️') || content.includes('本地知识库暂无相关内容')) {
-                                        fullAnswer += '<div class="info-message">' + content + '</div>';
-                                    }
-                                    // 检测工具调用信息（ReAct Agent）
-                                    else if (content.includes('调用工具') || content.includes('tool')) {
-                                        fullAnswer += '<div class="tool-call"><div class="tool-call-header">🔧 ' + content + '</div></div>';
-                                    }
-                                    else {
-                                        fullAnswer += content;
-                                    }
-
-                                    contentDiv.innerHTML = fullAnswer + '<span class="streaming-cursor"></span>';
-                                    // 自动滚动到底部
-                                    resultArea.scrollTop = resultArea.scrollHeight;
-                                }
-                            } catch (e) {
-                                console.error('解析错误:', e, data);
-                            }
-                        } else if (eventType === 'done') {
-                            break;
-                        }
+        if (!resp.ok) throw new Error('问答接口调用失败');
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let html = '';
+        answerShell.innerHTML = '<div class="stream-content" id="streamContent"></div>';
+        const streamContent = document.getElementById('streamContent');
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split('\n\n');
+            buffer = chunks.pop() || '';
+            for (const chunk of chunks) {
+                const parsed = parseChunk(chunk);
+                if (!parsed.event) continue;
+                if (parsed.event === 'message') {
+                    const payload = safeJSON(parsed.data);
+                    if (!payload?.content) continue;
+                    const content = payload.content;
+                    if (content.includes('ℹ️') || content.includes('本地知识库暂无相关内容')) {
+                        html += `<div class="status-box status-info">${escapeHTML(content)}</div>`;
+                    } else if (content.includes('工具') || content.includes('🔧')) {
+                        html += `<div class="status-box">${escapeHTML(content)}</div>`;
+                    } else {
+                        html += escapeHTML(content).replace(/\n/g, '<br>');
                     }
+                    streamContent.innerHTML = html + '<span class="cursor"></span>';
+                    answerShell.scrollTop = answerShell.scrollHeight;
                 }
-
-                // 移除光标
-                contentDiv.innerHTML = fullAnswer;
-
-            } catch (error) {
-                resultArea.innerHTML = `<div class="status-message status-error">✗ 查询失败: ${error.message}</div>`;
-            } finally {
-                queryBtn.disabled = false;
-                queryBtn.textContent = '🚀 开始查询';
+                if (parsed.event === 'error') {
+                    const payload = safeJSON(parsed.data);
+                    streamContent.innerHTML = `<div class="status-box status-error">${escapeHTML(payload?.message || '问答失败')}</div>`;
+                    return;
+                }
             }
-        });
-    </script>
+        }
+        streamContent.innerHTML = html || emptyMarkup('🤔', '没有返回内容', '接口返回成功，但没有文本。');
+        refreshMetrics();
+    } catch (err) {
+        answerShell.innerHTML = `<div class="status-box status-error">问答失败：${escapeHTML(err.message)}</div>`;
+    } finally {
+        queryBtn.disabled = false;
+        queryBtn.textContent = '开始问答';
+    }
+}
+
+function resetSearchArea() {
+    state.search = [];
+    searchResultShell.innerHTML = emptyMarkup('📚', '检索结果区', '还没有执行检索。');
+    setStatus(searchSummary, '检索结果已清空。', 'info');
+}
+
+function resetAnswerArea(emoji = '🧠', title = '回答区', desc = '等待一个问题来触发。') {
+    state.answer = '';
+    answerShell.innerHTML = emptyMarkup(emoji, title, desc);
+}
+
+function renderSearch(results) {
+    return results.map((item, idx) => `
+        <article class="search-card">
+            <h4>结果 ${idx + 1}</h4>
+            <p>${escapeHTML(item.content)}</p>
+            <div>
+                <span class="tag">score ${Number(item.score).toFixed(4)}</span>
+                <span class="tag">${escapeHTML(formatMetadataTag(item.metadata))}</span>
+            </div>
+        </article>
+    `).join('');
+}
+
+function formatMetadataTag(raw) {
+    if (!raw) {
+        return '知识库片段';
+    }
+    let parsed = null;
+    if (typeof raw === 'string') {
+        try {
+            parsed = JSON.parse(raw);
+        } catch (err) {
+            return raw.length > 40 ? `${raw.slice(0, 37)}...` : raw;
+        }
+    } else if (typeof raw === 'object') {
+        parsed = raw;
+    }
+    if (parsed) {
+        const source = parsed.source_name || parsed.source_type;
+        if (source) {
+            if (source === 'volcano_web_search') {
+                return '联网补充';
+            }
+            return `${source}`;
+        }
+        if (parsed.tag) {
+            return `${parsed.tag}`;
+        }
+    }
+    const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    return text.length > 40 ? `${text.slice(0, 37)}...` : text;
+}
+
+function setStatus(element, message, type) {
+    element.className = `status-box status-${type}`;
+    element.textContent = message;
+}
+
+function loadingMarkup(text) {
+    return `<div class="loading"><span class="spinner"></span><span>${escapeHTML(text)}</span></div>`;
+}
+
+function emptyMarkup(emoji, title, desc) {
+    return `<div class="status-box status-info"><div style="font-size:30px;margin-bottom:6px;">${emoji}</div><strong>${escapeHTML(title)}</strong><div>${escapeHTML(desc)}</div></div>`;
+}
+
+function formatUptime(seconds) {
+    const s = Number(seconds || 0);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+}
+
+function parseChunk(chunk) {
+    const lines = chunk.split('\n');
+    let event = '';
+    let data = '';
+    for (const line of lines) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        if (line.startsWith('data:')) data += line.slice(5).trim();
+    }
+    return { event, data };
+}
+
+function safeJSON(raw) {
+    try { return JSON.parse(raw); } catch { return null; }
+}
+
+function escapeHTML(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+refreshMetrics();
+setInterval(refreshMetrics, 15000);
+</script>
 </body>
 </html>

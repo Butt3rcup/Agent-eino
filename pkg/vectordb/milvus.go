@@ -3,18 +3,19 @@ package vectordb
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
+	"go.uber.org/zap"
+
+	"go-eino-agent/pkg/logger"
 )
 
 const (
-	CollectionName = "hotwords_collection"
-	IDField        = "id"
-	ContentField   = "content"
-	VectorField    = "embedding"
-	MetadataField  = "metadata"
+	IDField       = "id"
+	ContentField  = "content"
+	VectorField   = "embedding"
+	MetadataField = "metadata"
 )
 
 type Document struct {
@@ -32,38 +33,46 @@ type SearchResult struct {
 }
 
 type MilvusClient struct {
-	client client.Client
-	dim    int
+	client         client.Client
+	dim            int
+	dbName         string
+	collectionName string
 }
 
-func NewMilvusClient(uri, token string, dim int) (*MilvusClient, error) {
+func NewMilvusClient(uri, token, dbName, collectionName string, dim int) (*MilvusClient, error) {
 	c, err := client.NewClient(context.Background(), client.Config{
 		Address: uri,
 		APIKey:  token,
+		DBName:  dbName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Milvus: %w", err)
 	}
 
 	return &MilvusClient{
-		client: c,
-		dim:    dim,
+		client:         c,
+		dim:            dim,
+		dbName:         dbName,
+		collectionName: collectionName,
 	}, nil
 }
 
 func (m *MilvusClient) CreateCollection(ctx context.Context) error {
-	has, err := m.client.HasCollection(ctx, CollectionName)
+	has, err := m.client.HasCollection(ctx, m.collectionName)
 	if err != nil {
 		return fmt.Errorf("failed to check collection: %w", err)
 	}
 
 	if has {
-		log.Printf("Collection %s already exists", CollectionName)
-		return nil
+		logger.Info("Milvus collection already exists",
+			zap.String("db_name", m.dbName),
+			zap.String("collection_name", m.collectionName),
+		)
+		return m.loadCollection(ctx)
 	}
 
 	schema := &entity.Schema{
-		CollectionName: CollectionName,
+		CollectionName: m.collectionName,
 		AutoID:         true,
 		Fields: []*entity.Field{
 			{
@@ -104,15 +113,25 @@ func (m *MilvusClient) CreateCollection(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create index: %w", err)
 	}
-	if err := m.client.CreateIndex(ctx, CollectionName, VectorField, idx, false); err != nil {
+	if err := m.client.CreateIndex(ctx, m.collectionName, VectorField, idx, false); err != nil {
 		return fmt.Errorf("failed to create index: %w", err)
 	}
 
-	if err := m.client.LoadCollection(ctx, CollectionName, false); err != nil {
-		return fmt.Errorf("failed to load collection: %w", err)
+	if err := m.loadCollection(ctx); err != nil {
+		return err
 	}
 
-	log.Printf("Collection %s created successfully", CollectionName)
+	logger.Info("Milvus collection created successfully",
+		zap.String("db_name", m.dbName),
+		zap.String("collection_name", m.collectionName),
+	)
+	return nil
+}
+
+func (m *MilvusClient) loadCollection(ctx context.Context) error {
+	if err := m.client.LoadCollection(ctx, m.collectionName, false); err != nil {
+		return fmt.Errorf("failed to load collection: %w", err)
+	}
 	return nil
 }
 
@@ -135,14 +154,18 @@ func (m *MilvusClient) Insert(ctx context.Context, docs []Document) error {
 	metadataCol := entity.NewColumnVarChar(MetadataField, metadatas)
 	vectorCol := entity.NewColumnFloatVector(VectorField, m.dim, vectors)
 
-	if _, err := m.client.Insert(ctx, CollectionName, "", contentCol, metadataCol, vectorCol); err != nil {
+	if _, err := m.client.Insert(ctx, m.collectionName, "", contentCol, metadataCol, vectorCol); err != nil {
 		return fmt.Errorf("failed to insert documents: %w", err)
 	}
 
 	// 异步 Flush，避免每次插入都同步阻塞等待刷盘
 	go func() {
-		if err := m.client.Flush(context.Background(), CollectionName, false); err != nil {
-			log.Printf("[Milvus] async flush failed: %v", err)
+		if err := m.client.Flush(context.Background(), m.collectionName, false); err != nil {
+			logger.Warn("Milvus async flush failed",
+				zap.String("db_name", m.dbName),
+				zap.String("collection_name", m.collectionName),
+				zap.Error(err),
+			)
 		}
 	}()
 
@@ -154,7 +177,7 @@ func (m *MilvusClient) Search(ctx context.Context, vector []float32, topK int) (
 
 	searchResult, err := m.client.Search(
 		ctx,
-		CollectionName,
+		m.collectionName,
 		[]string{},
 		"",
 		[]string{ContentField, MetadataField},

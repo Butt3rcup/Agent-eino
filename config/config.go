@@ -16,7 +16,6 @@ type Config struct {
 	Server   ServerConfig
 	Upload   UploadConfig
 	RAG      RAGConfig
-	LLM      LLMConfig
 	Ollama   OllamaConfig
 	Security SecurityConfig
 }
@@ -35,9 +34,10 @@ type OllamaConfig struct {
 }
 
 type MilvusConfig struct {
-	URI    string
-	Token  string
-	DBName string
+	URI            string
+	Token          string
+	DBName         string
+	CollectionName string
 }
 
 type ServerConfig struct {
@@ -69,12 +69,7 @@ type RAGConfig struct {
 	EnableAutoSearch     bool    // 是否启用自动联网搜索
 	SimilarityThreshold  float32 // 相似度阈值（L2距离，越小越相似）
 	AutoSaveSearchResult bool    // 是否自动保存搜索结果到知识库
-}
-
-type LLMConfig struct {
-	Model       string
-	Temperature float64
-	MaxTokens   int
+	AutoSaveMinChars     int     // 自动保存最小内容长度
 }
 
 type SecurityConfig struct {
@@ -96,9 +91,10 @@ func Load() *Config {
 			Embedder: getEnv("EMBEDDER", ""),
 		},
 		Milvus: MilvusConfig{
-			URI:    getEnv("MILVUS_URI", "localhost:19530"),
-			Token:  getEnv("MILVUS_TOKEN", ""),
-			DBName: getEnv("MILVUS_DB_NAME", "hotwords"),
+			URI:            getEnv("MILVUS_URI", "localhost:19530"),
+			Token:          getEnv("MILVUS_TOKEN", ""),
+			DBName:         getEnv("MILVUS_DB_NAME", "hotwords"),
+			CollectionName: getEnv("MILVUS_COLLECTION_NAME", "hotwords_collection"),
 		},
 		Server: ServerConfig{
 			Port:               getEnv("SERVER_PORT", "8080"),
@@ -125,11 +121,7 @@ func Load() *Config {
 			EnableAutoSearch:     getBoolEnv("ENABLE_AUTO_SEARCH", true),
 			SimilarityThreshold:  getFloat32Env("SIMILARITY_THRESHOLD", 1.5),
 			AutoSaveSearchResult: getBoolEnv("AUTO_SAVE_SEARCH_RESULT", true),
-		},
-		LLM: LLMConfig{
-			Model:       getEnv("LLM_MODEL", "gpt-4o-mini"),
-			Temperature: getEnvFloat("LLM_TEMPERATURE", 0.7),
-			MaxTokens:   getEnvInt("LLM_MAX_TOKENS", 2000),
+			AutoSaveMinChars:     getEnvInt("AUTO_SAVE_MIN_CHARS", 120),
 		},
 		Ollama: OllamaConfig{
 			BaseURL: getEnv("OLLAMA_BASE_URL", ""),
@@ -154,6 +146,12 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Milvus.URI) == "" {
 		return fmt.Errorf("MILVUS_URI is required")
+	}
+	if strings.TrimSpace(c.Milvus.DBName) == "" {
+		return fmt.Errorf("MILVUS_DB_NAME is required")
+	}
+	if strings.TrimSpace(c.Milvus.CollectionName) == "" {
+		return fmt.Errorf("MILVUS_COLLECTION_NAME is required")
 	}
 	port, err := strconv.Atoi(c.Server.Port)
 	if err != nil || port < 1 || port > 65535 {
@@ -191,6 +189,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RAG.SimilarityThreshold <= 0 {
 		return fmt.Errorf("SIMILARITY_THRESHOLD must be positive")
+	}
+	if c.RAG.AutoSaveMinChars < 0 {
+		return fmt.Errorf("AUTO_SAVE_MIN_CHARS must be non-negative")
 	}
 	if c.Security.RateLimitRPS <= 0 || c.Security.RateLimitBurst < 1 {
 		return fmt.Errorf("rate limit config must be positive")

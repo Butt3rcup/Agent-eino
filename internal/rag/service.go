@@ -2,8 +2,6 @@ package rag
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,7 +36,18 @@ type Service struct {
 	enableAutoSearch bool               // 是否启用自动搜索
 	threshold        float32            // 相似度阈值（L2距离）
 	autoSave         bool               // 是否自动保存搜索结果
+	autoSaveMinChars int                // 自动保存最小内容长度
 	uploadDir        string             // 文件上传基础目录，从 config.Upload.Dir 读取
+}
+
+type autoKnowledgeMetadata struct {
+	SourceType   string `json:"source_type"`
+	SourceName   string `json:"source_name"`
+	Query        string `json:"query"`
+	AnswerHash   string `json:"answer_hash"`
+	ReviewStatus string `json:"review_status"`
+	Traceability string `json:"traceability"`
+	SavedAt      string `json:"saved_at"`
 }
 
 func NewService(
@@ -51,6 +60,7 @@ func NewService(
 	enableAutoSearch bool,
 	threshold float32,
 	autoSave bool,
+	autoSaveMinChars int,
 	uploadDir string,
 ) *Service {
 	return &Service{
@@ -67,6 +77,7 @@ func NewService(
 		enableAutoSearch: enableAutoSearch,
 		threshold:        threshold,
 		autoSave:         autoSave,
+		autoSaveMinChars: autoSaveMinChars,
 		uploadDir:        uploadDir,
 	}
 }
@@ -124,7 +135,7 @@ func (s *Service) Search(ctx context.Context, query string) ([]vectordb.SearchRe
 		return nil, fmt.Errorf("failed to search: %w", err)
 	}
 
-	return results, nil
+	return filterSearchResults(query, results, s.maxDelta), nil
 }
 
 func (s *Service) BuildContext(ctx context.Context, query string) (string, error) {
@@ -181,7 +192,12 @@ func (s *Service) SmartRetrieve(ctx context.Context, query string) (string, bool
 
 	// 5. 自动保存搜索结果到知识库
 	if s.autoSave && searchResult != "" {
-		if err := s.saveSearchResult(ctx, query, searchResult); err != nil {
+		if !shouldPersistKnowledge(s.autoSaveMinChars, query, searchResult) {
+			logger.Info("[SmartRetrieve] 跳过保存联网结果",
+				zap.String("查询", query),
+				zap.Int("内容长度", utf8.RuneCountInString(strings.TrimSpace(searchResult))),
+			)
+		} else if err := s.saveSearchResult(ctx, query, searchResult); err != nil {
 			logger.Warn("[SmartRetrieve] 保存搜索结果失败", zap.Error(err))
 		} else {
 			logger.Info("[SmartRetrieve] 已将搜索结果保存到知识库", zap.String("查询", query))
@@ -193,27 +209,41 @@ func (s *Service) SmartRetrieve(ctx context.Context, query string) (string, bool
 
 // saveSearchResult 将联网搜索结果保存到知识库
 func (s *Service) saveSearchResult(ctx context.Context, query, answer string) error {
-	// 1. 生成文档内容
-	content := fmt.Sprintf(`# %s
+	now := time.Now().Format(time.RFC3339)
+	normalizedQuery := strings.TrimSpace(query)
+	normalizedAnswer := normalizeKnowledgeText(answer)
+	answerHash := shortHash(normalizedQuery + "\n" + normalizedAnswer)
 
-**问题**: %s
+	metadataPayload := autoKnowledgeMetadata{
+		SourceType:   "web_search",
+		SourceName:   "volcano_web_search",
+		Query:        normalizedQuery,
+		AnswerHash:   answerHash,
+		ReviewStatus: "pending_review",
+		Traceability: "limited",
+		SavedAt:      now,
+	}
+	metadataBytes, err := json.Marshal(metadataPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
 
-**回答**:
+	content := fmt.Sprintf(`# 联网补充知识：%s
+
+**问题**：%s
+
+**回答**：
 %s
 
 ---
-*来源*: 联网搜索
-*时间*: %s
-`, query, query, answer, time.Now().Format(time.RFC3339))
+*来源类型*：联网搜索补充
+*来源工具*：volcano_web_search
+*可追溯性*：limited
+*审核状态*：pending_review
+*时间*：%s
+`, normalizedQuery, normalizedQuery, normalizedAnswer, now)
 
-	// 2. 生成文件名（使用MD5避免中文乱码）
-	timestamp := time.Now().Format("20060102_150405")
-	// 使用MD5哈希作为文件名，同时在文件内容中保留完整的中文查询
-	hash := md5.Sum([]byte(query))
-	hashStr := hex.EncodeToString(hash[:])[:16] // 取前16个字符
-	filename := fmt.Sprintf("%s_%s.md", timestamp, hashStr)
-
-	// 3. 使用配置的上传目录作为基础路径，避免硬编码相对路径
+	// 使用配置的上传目录作为基础路径，避免硬编码相对路径
 	baseDir := s.uploadDir
 	if baseDir == "" {
 		baseDir = "./uploads"
@@ -223,16 +253,23 @@ func (s *Service) saveSearchResult(ctx context.Context, query, answer string) er
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// 4. 写入文件
+	filename := fmt.Sprintf("web_search_%s.md", answerHash)
 	filePath := filepath.Join(dir, filename)
+	if _, err := os.Stat(filePath); err == nil {
+		logger.Info("[SmartRetrieve] 检测到重复联网结果，跳过重复入库",
+			zap.String("查询", normalizedQuery),
+			zap.String("hash", answerHash),
+		)
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
 	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// 5. 索引到向量数据库
-	metadata := fmt.Sprintf("source:web_search,query:%s,time:%s",
-		query, time.Now().Format(time.RFC3339))
-	if err := s.IndexDocument(ctx, content, metadata); err != nil {
+	if err := s.IndexDocument(ctx, content, string(metadataBytes)); err != nil {
 		return fmt.Errorf("failed to index document: %w", err)
 	}
 
@@ -305,8 +342,7 @@ func contentHashKey(content string) string {
 	if len(trimmed) > 512 {
 		trimmed = trimmed[:512]
 	}
-	hash := md5.Sum([]byte(trimmed))
-	return hex.EncodeToString(hash[:])
+	return shortHash(trimmed)
 }
 
 func minInt(a, b int) int {

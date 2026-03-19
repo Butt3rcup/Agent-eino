@@ -20,7 +20,8 @@ import (
 func main() {
 	// 初始化日志系统
 	if err := logger.Init(); err != nil {
-		panic(fmt.Sprintf("Failed to initialize logger: %v", err))
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
 	}
 	defer logger.Sync()
 
@@ -38,7 +39,8 @@ func main() {
 	defer h.Close()
 
 	// 创建 Gin 路由
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 	metrics := newRequestMetrics()
 	limiter := newRateLimiter(cfg.Security.RateLimitRPS, cfg.Security.RateLimitBurst)
 

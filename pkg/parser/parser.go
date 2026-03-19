@@ -7,21 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
 
 	"github.com/ledongthuc/pdf"
 )
-
-type Parser struct {
-}
-
-func NewParser() *Parser {
-	return &Parser{}
-}
-
-func (p *Parser) Close() {
-	// No cleanup needed without jieba
-}
 
 func (p *Parser) ParseMarkdown(content []byte) (string, error) {
 	return string(content), nil
@@ -53,67 +41,6 @@ func (p *Parser) ParsePDF(filePath string) (string, error) {
 	}
 
 	return buf.String(), nil
-}
-
-func (p *Parser) Tokenize(text string) []string {
-	// Simple tokenization without jieba - split on whitespace and punctuation
-	var tokens []string
-	var currentToken strings.Builder
-
-	for _, r := range text {
-		if unicode.IsSpace(r) || unicode.IsPunct(r) {
-			if currentToken.Len() > 0 {
-				tokens = append(tokens, currentToken.String())
-				currentToken.Reset()
-			}
-		} else {
-			currentToken.WriteRune(r)
-		}
-	}
-
-	if currentToken.Len() > 0 {
-		tokens = append(tokens, currentToken.String())
-	}
-
-	return tokens
-}
-
-func (p *Parser) ChunkText(text string, chunkSize, overlap int) []string {
-	if chunkSize <= 0 {
-		return []string{}
-	}
-	if overlap < 0 {
-		overlap = 0
-	}
-	if overlap >= chunkSize {
-		overlap = chunkSize - 1
-	}
-
-	tokens := p.Tokenize(text)
-	if len(tokens) == 0 {
-		return []string{}
-	}
-
-	chunks := make([]string, 0)
-	start := 0
-
-	for start < len(tokens) {
-		end := start + chunkSize
-		if end > len(tokens) {
-			end = len(tokens)
-		}
-
-		chunk := strings.Join(tokens[start:end], " ")
-		chunks = append(chunks, chunk)
-
-		if end >= len(tokens) {
-			break
-		}
-
-		start += chunkSize - overlap
-	}
-
-	return chunks
 }
 
 func (p *Parser) ParseFile(filePath string) (string, error) {

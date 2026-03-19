@@ -63,6 +63,8 @@ ARK_API_KEY=your_api_key
 MODEL=doubao-1-5-pro-32k-250115
 EMBEDDER=ep-xxxxxxxx-xxxx
 MILVUS_URI=localhost:19530
+MILVUS_DB_NAME=hotwords
+MILVUS_COLLECTION_NAME=hotwords_collection
 ```
 
 ### 4.3 启动 Milvus
@@ -100,7 +102,18 @@ go run cmd/server/main.go
 文档上传并索引（支持 `.md` / `.markdown` / `.pdf`，含 MIME 校验）。
 
 ### `POST /api/search`
-向量检索接口。
+向量检索接口。检索不到相关内容时会返回 `matched:false` 且附带 `reason:no_relevant_match`，前端可据此提示用户并避免展示误导性片段。
+
+空结果示例：
+
+```json
+{
+  "matched": false,
+  "reason": "no_relevant_match",
+  "count": 0,
+  "results": []
+}
+```
 
 ### `POST /api/query`（SSE）
 统一问答入口。
@@ -147,6 +160,18 @@ go run cmd/server/main.go
 | `MAX_CONTEXT_CHARS` | `4000` | 上下文字符预算 |
 | `MAX_SCORE_DELTA` | `1.0` | 相对最佳分数的允许差值（L2） |
 | `SIMILARITY_THRESHOLD` | `1.5` | 自动联网触发阈值（L2） |
+| `AUTO_SAVE_MIN_CHARS` | `120` | 联网结果自动入库的最小内容长度 |
+
+### 6.3 Milvus 隔离与自动回写
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MILVUS_DB_NAME` | `hotwords` | Milvus 数据库名 |
+| `MILVUS_COLLECTION_NAME` | `hotwords_collection` | Milvus 集合名 |
+
+- 自动联网结果会附带 `source_type`、`answer_hash`、`review_status` 等元数据后再入库
+- 已存在的联网补充内容会基于稳定哈希去重，避免重复写入和重复向量索引
+- 过短或明显不可靠的联网结果会被跳过，不直接污染知识库
 
 ## 7. 观测与运维
 
@@ -162,7 +187,7 @@ go test ./...
 go vet ./...
 ```
 
-当前仓库仍缺少测试文件，建议后续补齐 `handler/rag/graph` 的单测与集成测试。
+当前仓库已补充部分 `config/parser/rag/middleware/handler` 单测，建议后续继续增加 `graph` 与真实依赖下的集成测试。
 
 ## 9. 目录结构
 
