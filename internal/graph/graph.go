@@ -9,26 +9,30 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+
+	"go-eino-agent/internal/agent"
 )
 
 type RAGGraphConfig struct {
-	ChatModel    model.ChatModel // 外部传入的共享 ChatModel
+	ChatModel    model.ChatModel
 	APIKey       string
 	BaseURL      string
 	Model        string
 	RAGContext   func(context.Context, string) (string, error)
 	SystemPrompt string
+	Validator    agent.Validator
 }
 
 type RAGGraph struct {
-	runnable compose.Runnable[map[string]any, *schema.Message]
+	runnable   compose.Runnable[map[string]any, *schema.Message]
+	ragContext func(context.Context, string) (string, error)
+	validator  agent.Validator
 }
 
-func NewRAGGraph(config *RAGGraphConfig) (*RAGGraph, error) {
+func NewRAGGraph(ctx context.Context, config *RAGGraphConfig) (*RAGGraph, error) {
 	chatModel := config.ChatModel
 	if chatModel == nil {
-		// 当没有外部传入时，尝试使用 APIKey 创建（兼容旧行为）
-		m, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
+		modelInstance, err := arkComponent.NewChatModel(ctx, &arkComponent.ChatModelConfig{
 			APIKey:  config.APIKey,
 			BaseURL: config.BaseURL,
 			Model:   config.Model,
@@ -36,22 +40,19 @@ func NewRAGGraph(config *RAGGraphConfig) (*RAGGraph, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create chat model: %w", err)
 		}
-		chatModel = m
+		chatModel = modelInstance
 	}
 
 	g := compose.NewGraph[map[string]any, *schema.Message]()
-
 	g.AddLambdaNode("retrieve", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
 		query, ok := input["query"].(string)
 		if !ok {
 			return nil, fmt.Errorf("query not found in input")
 		}
-
 		ragContext, err := config.RAGContext(ctx, query)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve context: %w", err)
 		}
-
 		input["context"] = ragContext
 		return input, nil
 	}))
@@ -61,85 +62,83 @@ func NewRAGGraph(config *RAGGraphConfig) (*RAGGraph, error) {
 		if !ok {
 			return nil, fmt.Errorf("query not found in input")
 		}
-		context, ok := getStringInput(input, "context")
+		ragContext, ok := getStringInput(input, "context")
 		if !ok {
 			return nil, fmt.Errorf("context not found in input")
 		}
 
 		systemPrompt := config.SystemPrompt
 		if systemPrompt == "" {
-			systemPrompt = "你是资深的网络热词助手，必须基于给定的参考资料回答问题。"
+			systemPrompt = agent.GroundedAnswerPrompt
 		}
 
-		messages := []*schema.Message{
-			{
-				Role:    schema.System,
-				Content: systemPrompt,
-			},
-			{
-				Role: schema.User,
-				Content: fmt.Sprintf(`
-【参考文档】
-%s
-
-【用户问题】
-%s
-
-请基于参考内容提供准确、详细的回答。`, context, query),
-			},
-		}
-
-		return messages, nil
+		return []*schema.Message{
+			{Role: schema.System, Content: systemPrompt},
+			{Role: schema.User, Content: fmt.Sprintf("【参考文档】%s\n\n【用户问题】%s\n\n请基于参考内容提供准确、详细的回答。", ragContext, query)},
+		}, nil
 	}))
 
 	g.AddChatModelNode("generate", chatModel)
-
 	g.AddEdge(compose.START, "retrieve")
 	g.AddEdge("retrieve", "build_prompt")
 	g.AddEdge("build_prompt", "generate")
 	g.AddEdge("generate", compose.END)
 
-	runnable, err := g.Compile(context.Background())
+	runnable, err := g.Compile(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile graph: %w", err)
 	}
 
-	return &RAGGraph{
-		runnable: runnable,
-	}, nil
+	return &RAGGraph{runnable: runnable, ragContext: config.RAGContext, validator: config.Validator}, nil
 }
 
 func (g *RAGGraph) Run(ctx context.Context, query string) (*schema.Message, error) {
-	input := map[string]any{"query": query}
-	output, err := g.runnable.Invoke(ctx, input)
+	message, err := g.runnable.Invoke(ctx, map[string]any{"query": query})
 	if err != nil {
-		return nil, fmt.Errorf("graph execution failed: %w", err)
+		return nil, err
 	}
-	return output, nil
+	if message == nil {
+		return nil, fmt.Errorf("empty graph response")
+	}
+	if g.validator != nil && g.ragContext != nil {
+		evidence, ctxErr := g.ragContext(ctx, query)
+		if ctxErr == nil {
+			if err := g.validator.ValidateAnswer(query, message.Content, evidence); err != nil {
+				if trace := agent.TraceFromContext(ctx); trace != nil {
+					trace.IncValidationFailures()
+				}
+				return nil, err
+			}
+		}
+	}
+	return message, nil
 }
 
 func (g *RAGGraph) Stream(ctx context.Context, query string) (*schema.StreamReader[*schema.Message], error) {
-	input := map[string]any{"query": query}
-	return g.runnable.Stream(ctx, input)
+	return g.runnable.Stream(ctx, map[string]any{"query": query})
 }
 
 type MultiStageGraphConfig struct {
-	ChatModel  model.ChatModel // 外部传入的共享 ChatModel
+	ChatModel  model.ChatModel
 	APIKey     string
 	BaseURL    string
 	Model      string
 	RAGContext func(context.Context, string) (string, error)
 	Tools      map[string]func(context.Context, string) (string, error)
+	Planner    agent.Planner
+	Validator  agent.Validator
 }
 
 type MultiStageGraph struct {
-	runnable compose.Runnable[map[string]any, map[string]any]
+	runnable  compose.Runnable[map[string]any, map[string]any]
+	planner   agent.Planner
+	validator agent.Validator
 }
 
-func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error) {
+func NewMultiStageGraph(ctx context.Context, config *MultiStageGraphConfig) (*MultiStageGraph, error) {
 	chatModel := config.ChatModel
 	if chatModel == nil {
-		m, err := arkComponent.NewChatModel(context.Background(), &arkComponent.ChatModelConfig{
+		modelInstance, err := arkComponent.NewChatModel(ctx, &arkComponent.ChatModelConfig{
 			APIKey:  config.APIKey,
 			BaseURL: config.BaseURL,
 			Model:   config.Model,
@@ -147,41 +146,32 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create chat model: %w", err)
 		}
-		chatModel = m
+		chatModel = modelInstance
 	}
 
 	tools := config.Tools
 	if tools == nil {
 		tools = map[string]func(context.Context, string) (string, error){}
 	}
+	planner := config.Planner
+	if planner == nil {
+		planner = agent.NewPlanner()
+	}
 
 	g := compose.NewGraph[map[string]any, map[string]any]()
-
-	g.AddLambdaNode("intent_recognition", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
+	g.AddLambdaNode("plan_generation", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
 		query, ok := getStringInput(input, "query")
 		if !ok {
 			return nil, fmt.Errorf("query not found in input")
 		}
-		messages := []*schema.Message{
-			{
-				Role:    schema.System,
-				Content: "分析用户是想要 search、analysis、explanation 还是 comprehensive，请直接返回其中一个英文单词。",
-			},
-			{
-				Role:    schema.User,
-				Content: query,
-			},
-		}
-
-		output, err := chatModel.Generate(ctx, messages)
+		plan, err := planner.BuildPlan(ctx, query)
 		if err != nil {
 			return nil, err
 		}
-		if output == nil {
-			return nil, fmt.Errorf("intent recognition returned empty output")
+		if trace := agent.TraceFromContext(ctx); trace != nil {
+			trace.MarkPlannerUsed()
 		}
-
-		input["intent"] = output.Content
+		input["plan"] = plan
 		return input, nil
 	}))
 
@@ -198,21 +188,59 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 		return input, nil
 	}))
 
-	g.AddLambdaNode("tool_execution", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
-		intent, _ := input["intent"].(string)
-		intent = normalizeIntent(intent)
+	g.AddLambdaNode("conditional_tool_execution", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
 		query, ok := getStringInput(input, "query")
 		if !ok {
 			return nil, fmt.Errorf("query not found in input")
 		}
-
-		if toolFunc, ok := tools[intent]; ok {
+		plan, ok := input["plan"].(agent.ExecutionPlan)
+		if !ok {
+			return nil, fmt.Errorf("plan not found in input")
+		}
+		stepResults := make(map[string]string)
+		for _, step := range plan.Steps {
+			if !step.Required || step.Name == "summarize" {
+				continue
+			}
+			toolFunc, exists := tools[step.Name]
+			if !exists {
+				continue
+			}
 			result, err := toolFunc(ctx, query)
 			if err != nil {
 				return nil, err
 			}
-			input["tool_result"] = result
+			if config.Validator != nil {
+				if err := config.Validator.ValidateToolResult(query, step.Name, result); err != nil {
+					if trace := agent.TraceFromContext(ctx); trace != nil {
+						trace.IncValidationFailures()
+					}
+					return nil, err
+				}
+			}
+			stepResults[step.Name] = result
 		}
+		input["step_results"] = stepResults
+		return input, nil
+	}))
+
+	g.AddLambdaNode("evidence_validation", compose.InvokableLambda(func(ctx context.Context, input map[string]any) (map[string]any, error) {
+		ragContext, _ := input["rag_context"].(string)
+		stepResults, _ := input["step_results"].(map[string]string)
+		evidence := strings.TrimSpace(ragContext)
+		for _, value := range stepResults {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			if evidence != "" {
+				evidence += "\n\n"
+			}
+			evidence += value
+		}
+		if evidence == "" {
+			return nil, fmt.Errorf("no evidence available for final generation")
+		}
+		input["evidence"] = evidence
 		return input, nil
 	}))
 
@@ -221,90 +249,56 @@ func NewMultiStageGraph(config *MultiStageGraphConfig) (*MultiStageGraph, error)
 		if !ok {
 			return nil, fmt.Errorf("query not found in input")
 		}
-		ragContext, ok := getStringInput(input, "rag_context")
+		evidence, ok := getStringInput(input, "evidence")
 		if !ok {
-			return nil, fmt.Errorf("rag_context not found in input")
+			return nil, fmt.Errorf("evidence not found in input")
 		}
-		toolResult, _ := input["tool_result"].(string)
-
-		messages := []*schema.Message{
-			{
-				Role:    schema.System,
-				Content: "你是网络热词专家，整合所有上下文给用户提供结论。",
-			},
-			{
-				Role: schema.User,
-				Content: fmt.Sprintf(`
-【RAG 检索结果】
-%s
-
-【工具输出】
-%s
-
-【用户问题】
-%s
-
-请汇总上述信息给出详细答案。`, ragContext, toolResult, query),
-			},
-		}
-
-		output, err := chatModel.Generate(ctx, messages)
+		output, err := chatModel.Generate(ctx, []*schema.Message{
+			{Role: schema.System, Content: agent.GroundedAnswerPrompt},
+			{Role: schema.User, Content: fmt.Sprintf("【执行计划】%v\n\n【综合证据】%s\n\n【用户问题】%s\n\n请基于证据输出结构化、准确的答案。", input["plan"], evidence, query)},
+		})
 		if err != nil {
 			return nil, err
 		}
 		if output == nil {
 			return nil, fmt.Errorf("final generation returned empty output")
 		}
-
+		if config.Validator != nil {
+			if err := config.Validator.ValidateAnswer(query, output.Content, evidence); err != nil {
+				if trace := agent.TraceFromContext(ctx); trace != nil {
+					trace.IncValidationFailures()
+				}
+				return nil, err
+			}
+		}
 		input["final_answer"] = output.Content
 		return input, nil
 	}))
 
-	g.AddEdge(compose.START, "intent_recognition")
-	g.AddEdge("intent_recognition", "rag_retrieve")
-	g.AddEdge("rag_retrieve", "tool_execution")
-	g.AddEdge("tool_execution", "final_generation")
+	g.AddEdge(compose.START, "plan_generation")
+	g.AddEdge("plan_generation", "rag_retrieve")
+	g.AddEdge("rag_retrieve", "conditional_tool_execution")
+	g.AddEdge("conditional_tool_execution", "evidence_validation")
+	g.AddEdge("evidence_validation", "final_generation")
 	g.AddEdge("final_generation", compose.END)
 
-	runnable, err := g.Compile(context.Background())
+	runnable, err := g.Compile(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile graph: %w", err)
 	}
 
-	return &MultiStageGraph{runnable: runnable}, nil
+	return &MultiStageGraph{runnable: runnable, planner: planner, validator: config.Validator}, nil
 }
 
 func (g *MultiStageGraph) Run(ctx context.Context, query string) (string, error) {
-	input := map[string]any{"query": query}
-
-	output, err := g.runnable.Invoke(ctx, input)
+	output, err := g.runnable.Invoke(ctx, map[string]any{"query": query})
 	if err != nil {
 		return "", fmt.Errorf("graph execution failed: %w", err)
 	}
-
 	if finalAnswer, ok := output["final_answer"].(string); ok && finalAnswer != "" {
 		return finalAnswer, nil
 	}
-
 	return "", fmt.Errorf("no final answer in output")
-}
-
-func normalizeIntent(intent string) string {
-	v := strings.ToLower(strings.TrimSpace(intent))
-
-	switch {
-	case strings.Contains(v, "comprehensive"):
-		return "comprehensive"
-	case strings.Contains(v, "analysis"):
-		return "analysis"
-	case strings.Contains(v, "explanation"), strings.Contains(v, "explain"):
-		return "explanation"
-	case strings.Contains(v, "search"):
-		return "search"
-	default:
-		// 未能识别意图时，回退到 comprehensive 模式作为兼容处理
-		return "comprehensive"
-	}
 }
 
 func getStringInput(input map[string]any, key string) (string, bool) {

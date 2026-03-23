@@ -34,25 +34,23 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 	for {
 		chunk, err := reader.Recv()
 		chunkCount++
-
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				logger.Info("[StreamReader] 流结束", zap.Int("totalChunks", chunkCount))
+				logger.Info("[StreamReader] stream finished", zap.Int("totalChunks", chunkCount))
 				if buffer != "" {
 					h.writeSSEMessage(c, flusher, buffer)
 				}
 				h.writeSSEDone(c, flusher)
-				break
+				return
 			}
-			h.writeSSEError(c, flusher, fmt.Sprintf("读取流失败: %v", err))
-			break
+			h.writeSSEError(c, flusher, fmt.Sprintf("读取流失败: %s", friendlyQueryError(err)))
+			return
 		}
-
 		if chunk == nil {
 			continue
 		}
 
-		logger.Debug("[StreamReader] 收到chunk",
+		logger.Debug("[StreamReader] received chunk",
 			zap.Int("chunkNum", chunkCount),
 			zap.String("role", string(chunk.Role)),
 			zap.Int("contentLen", len(chunk.Content)),
@@ -61,10 +59,8 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 
 		if len(chunk.ToolCalls) > 0 {
 			if buffer != "" && isToolCallDescription(buffer) {
-				logger.Debug("[StreamReader] 丢弃工具调用描述", zap.String("buffer", buffer))
 				buffer = ""
 			} else if buffer != "" {
-				logger.Debug("[StreamReader] 输出缓存内容", zap.String("buffer", buffer))
 				h.writeSSEMessage(c, flusher, buffer)
 				buffer = ""
 			}
@@ -73,10 +69,9 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 				toolID := toolCall.ID
 				toolName := toolCall.Function.Name
 				if toolID != "" && toolName != "" && strings.Contains(toolName, "_") && !toolCallsShown[toolID] {
-					toolInfo := fmt.Sprintf("\n\n🔧 正在调用工具: %s ...\n\n", toolName)
-					h.writeSSEMessage(c, flusher, toolInfo)
+					h.writeSSEMessage(c, flusher, fmt.Sprintf("\n\n🔡 正在调用工具: %s ...\n\n", toolName))
 					toolCallsShown[toolID] = true
-					logger.Info("[StreamReader] 显示工具调用", zap.String("tool", toolName))
+					logger.Info("[StreamReader] tool call shown", zap.String("tool", toolName))
 				}
 			}
 			continue
@@ -87,9 +82,8 @@ func (h *Handler) streamMessageReader(c *gin.Context, flusher http.Flusher, read
 		}
 
 		buffer += chunk.Content
-		if strings.Contains(buffer, "。") {
+		if strings.Contains(buffer, "。") || strings.Contains(buffer, "\n") {
 			if isToolCallDescription(buffer) {
-				logger.Debug("[StreamReader] 检测到工具调用描述，丢弃", zap.String("buffer", buffer))
 				buffer = ""
 			} else {
 				h.writeSSEMessage(c, flusher, buffer)
@@ -117,10 +111,9 @@ func isToolCallDescription(text string) bool {
 func (h *Handler) streamTextResult(c *gin.Context, flusher http.Flusher, fn func(context.Context) (string, error)) {
 	result, err := fn(c.Request.Context())
 	if err != nil {
-		h.writeSSEError(c, flusher, err.Error())
+		h.writeSSEError(c, flusher, friendlyQueryError(err))
 		return
 	}
-
 	h.writeSSEMessage(c, flusher, result)
 	h.writeSSEDone(c, flusher)
 }
@@ -152,4 +145,17 @@ func (h *Handler) writeSSEError(c *gin.Context, flusher http.Flusher, message st
 func (h *Handler) writeSSEDone(c *gin.Context, flusher http.Flusher) {
 	c.SSEvent("done", gin.H{"message": "完成"})
 	flusher.Flush()
+}
+
+func friendlyQueryError(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, context.DeadlineExceeded):
+		return "当前模式处理超时，请稍后重试或切换更轻量的模式"
+	case errors.Is(err, context.Canceled):
+		return "请求已取消"
+	default:
+		return err.Error()
+	}
 }

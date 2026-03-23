@@ -17,8 +17,8 @@ type VolcanoWebSearchTool struct {
 }
 
 // NewVolcanoWebSearchTool 创建火山引擎联网搜索工具实例
-func NewVolcanoWebSearchTool(apiKey, baseURL, model string) (*VolcanoWebSearchTool, error) {
-	chatModel, err := arkComponent.NewChatModel(context.Background(),
+func NewVolcanoWebSearchTool(ctx context.Context, apiKey, baseURL, model string) (*VolcanoWebSearchTool, error) {
+	chatModel, err := arkComponent.NewChatModel(ctx,
 		&arkComponent.ChatModelConfig{
 			APIKey:  apiKey,
 			BaseURL: baseURL,

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "define_basic",
+    "query": "YYDS 是什么意思？请用一句话和一个例子解释。",
+    "expected_keywords": ["永远的神", "例子"],
+    "forbidden_keywords": ["根据最新官方公告", "无法确认"],
+    "preferred_modes": ["rag", "rag_agent"]
+  },
+  {
+    "id": "trend_reason",
+    "query": "这个热词为什么最近突然火了？请分析背后的传播原因。",
+    "expected_keywords": ["传播", "原因", "热度"],
+    "forbidden_keywords": ["完全无法判断"],
+    "preferred_modes": ["rag_agent", "multi-agent", "graph_multi"]
+  },
+  {
+    "id": "usage_and_origin",
+    "query": "给我解释一下这个梗的含义、起源和常见使用场景。",
+    "expected_keywords": ["含义", "起源", "场景"],
+    "forbidden_keywords": ["我不确定"],
+    "preferred_modes": ["rag_agent", "multi-agent"]
+  },
+  {
+    "id": "comprehensive_summary",
+    "query": "请全面说明这个热词是什么意思、为什么火、怎么用、有没有过时风险，并做一个简短总结。",
+    "expected_keywords": ["什么意思", "为什么", "怎么用", "总结"],
+    "forbidden_keywords": ["随便说说", "完全编造"],
+    "preferred_modes": ["multi-agent", "graph_multi"]
+  },
+  {
+    "id": "compare_terms",
+    "query": "请对比这两个网络热词的区别、语气差异和适用场景。",
+    "expected_keywords": ["区别", "语气", "场景"],
+    "forbidden_keywords": ["没有区别"],
+    "preferred_modes": ["multi-agent", "graph_multi"]
+  },
+  {
+    "id": "latest_context",
+    "query": "这个词最近一周的热度变化和讨论重点是什么？",
+    "expected_keywords": ["最近", "热度", "讨论"],
+    "forbidden_keywords": ["无法联网", "不知道"],
+    "preferred_modes": ["rag_agent", "graph_multi"]
+  }
+]

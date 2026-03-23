@@ -85,6 +85,12 @@ go mod tidy
 go run cmd/server/main.go
 ```
 
+也可以直接使用仓库内脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-server.ps1
+```
+
 默认访问：
 - Web: `http://localhost:8080`
 - Health: `http://localhost:8080/api/health`
@@ -93,7 +99,7 @@ go run cmd/server/main.go
 ## 5. API 概览
 
 ### `GET /api/health`
-服务健康状态。
+服务健康状态，返回整体 `ready`、组件可用性、模式开关，以及后台任务队列与查询缓存状态。
 
 ### `GET /api/metrics`
 内存指标快照（请求总量、状态码分布、延迟、在途请求、运行时长）。
@@ -187,6 +193,16 @@ go test ./...
 go vet ./...
 ```
 
+推荐优先使用仓库脚本统一测试缓存目录：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/test.ps1
+```
+
+```bash
+bash scripts/test.sh
+```
+
 当前仓库已补充部分 `config/parser/rag/middleware/handler` 单测，建议后续继续增加 `graph` 与真实依赖下的集成测试。
 
 ## 9. 目录结构
@@ -205,7 +221,18 @@ pkg/vectordb/               # Milvus 封装
 web/templates/              # 页面模板
 ```
 
-## 10. 路线图
+## 10. 辅助脚本
+
+| 脚本 | 说明 |
+| --- | --- |
+| `scripts/run-server.ps1` | Windows 下启动服务，并统一设置 `GOPATH`、`GOMODCACHE`、`GOCACHE` |
+| `scripts/test.ps1` / `scripts/test.sh` | 运行 `go test ./...` 与 `go vet ./...` |
+| `scripts/bench.ps1` / `scripts/bench.sh` | 运行压测与基准相关命令 |
+| `scripts/eval.ps1` / `scripts/eval.sh` | 执行评测流程并生成报告 |
+
+对应的命令行工具入口位于 `cmd/agenteval`、`cmd/agentevalreport`、`cmd/benchreport`、`cmd/loadtest`。
+
+## 11. 路线图
 
 - 增加标准化测试基线（单测 + 集成）
 - 接入外部监控（Prometheus / OpenTelemetry）

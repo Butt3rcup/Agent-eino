@@ -1,14 +1,11 @@
 package parser
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/ledongthuc/pdf"
 )
 
 func (p *Parser) ParseMarkdown(content []byte) (string, error) {
@@ -16,31 +13,7 @@ func (p *Parser) ParseMarkdown(content []byte) (string, error) {
 }
 
 func (p *Parser) ParsePDF(filePath string) (string, error) {
-	f, r, err := pdf.Open(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open PDF: %w", err)
-	}
-	defer f.Close()
-
-	var buf bytes.Buffer
-	totalPage := r.NumPage()
-
-	for pageIndex := 1; pageIndex <= totalPage; pageIndex++ {
-		p := r.Page(pageIndex)
-		if p.V.IsNull() {
-			continue
-		}
-
-		text, err := p.GetPlainText(nil)
-		if err != nil {
-			continue
-		}
-
-		buf.WriteString(text)
-		buf.WriteString("\n")
-	}
-
-	return buf.String(), nil
+	return "", fmt.Errorf("pdf parsing is currently disabled")
 }
 
 func (p *Parser) ParseFile(filePath string) (string, error) {

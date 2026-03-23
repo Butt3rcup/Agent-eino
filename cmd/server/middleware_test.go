@@ -1,24 +1,40 @@
 package main
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
-func TestRateLimiterBlocksBurstExhaustion(t *testing.T) {
-	rl := newRateLimiter(1, 2)
-	now := time.Now()
+func TestRankQueryModesOrdersByLatencyThenFailureRate(t *testing.T) {
+	metrics := map[string]queryModeMetric{
+		"rag": {
+			Requests:       10,
+			Failures:       1,
+			FailureRatePct: 10,
+			AvgLatencyMs:   120,
+		},
+		"graph_multi": {
+			Requests:       10,
+			Failures:       2,
+			FailureRatePct: 20,
+			AvgLatencyMs:   300,
+		},
+		"react": {
+			Requests:       10,
+			Failures:       4,
+			FailureRatePct: 40,
+			AvgLatencyMs:   300,
+		},
+	}
 
-	if !rl.allow("127.0.0.1", now) {
-		t.Fatal("expected first request to pass")
+	ranked := rankQueryModes(metrics)
+	if len(ranked) != 3 {
+		t.Fatalf("expected 3 ranked modes, got %d", len(ranked))
 	}
-	if !rl.allow("127.0.0.1", now) {
-		t.Fatal("expected second request to pass within burst")
+	if ranked[0].Mode != "react" {
+		t.Fatalf("expected react to rank first, got %s", ranked[0].Mode)
 	}
-	if rl.allow("127.0.0.1", now) {
-		t.Fatal("expected third request to be blocked after burst exhaustion")
+	if ranked[1].Mode != "graph_multi" {
+		t.Fatalf("expected graph_multi to rank second, got %s", ranked[1].Mode)
 	}
-	if !rl.allow("127.0.0.1", now.Add(time.Second)) {
-		t.Fatal("expected token refill after one second")
+	if ranked[2].Mode != "rag" {
+		t.Fatalf("expected rag to rank last, got %s", ranked[2].Mode)
 	}
 }

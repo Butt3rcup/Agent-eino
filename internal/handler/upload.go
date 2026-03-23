@@ -11,9 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type UploadResponse struct {
-	Message  string `json:"message"`
-	Filename string `json:"filename"`
+type UploadAcceptedResponse struct {
+	Message   string `json:"message"`
+	Filename  string `json:"filename"`
+	TaskID    string `json:"task_id"`
+	State     string `json:"state"`
+	StatusURL string `json:"status_url"`
 }
 
 func (h *Handler) HandleUpload(c *gin.Context) {
@@ -33,6 +36,11 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持 .md / .markdown / .pdf"})
 		return
 	}
+	if ext == ".pdf" && !h.cfg.Upload.PDFEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "PDF 上传当前已禁用，请先启用 PDF_UPLOAD_ENABLED"})
+		return
+	}
+
 	contentType, err := detectUploadedContentType(file)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无法识别文件类型"})
@@ -58,13 +66,35 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 	}
 
 	metadata := fmt.Sprintf("filename:%s,upload_time:%s", safeName, now.Format(time.RFC3339))
-	if err := h.ragService.IndexFile(c.Request.Context(), savePath, metadata); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("索引文件失败: %v", err)})
+	task, err := h.uploadTasks.Enqueue(filename, savePath, metadata)
+	if err != nil {
+		_ = os.Remove(savePath)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "上传任务队列繁忙，请稍后重试"})
+		return
+	}
+	task.StatusURL = fmt.Sprintf("/api/upload/%s", task.TaskID)
+
+	c.JSON(http.StatusAccepted, UploadAcceptedResponse{
+		Message:   "文件已接收，正在后台入库",
+		Filename:  filename,
+		TaskID:    task.TaskID,
+		State:     string(task.State),
+		StatusURL: task.StatusURL,
+	})
+}
+
+func (h *Handler) HandleUploadStatus(c *gin.Context) {
+	taskID := strings.TrimSpace(c.Param("taskID"))
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task_id 不能为空"})
 		return
 	}
 
-	c.JSON(http.StatusOK, UploadResponse{
-		Message:  "文件上传并入库成功",
-		Filename: filename,
-	})
+	task, ok := h.uploadTasks.Get(taskID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "上传任务不存在"})
+		return
+	}
+	task.StatusURL = fmt.Sprintf("/api/upload/%s", task.TaskID)
+	c.JSON(http.StatusOK, task)
 }

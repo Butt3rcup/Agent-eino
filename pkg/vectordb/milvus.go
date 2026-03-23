@@ -3,6 +3,8 @@ package vectordb
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
@@ -16,6 +18,9 @@ const (
 	ContentField  = "content"
 	VectorField   = "embedding"
 	MetadataField = "metadata"
+
+	defaultFlushInterval = 800 * time.Millisecond
+	defaultFlushTimeout  = 10 * time.Second
 )
 
 type Document struct {
@@ -37,10 +42,13 @@ type MilvusClient struct {
 	dim            int
 	dbName         string
 	collectionName string
+	flushSignals   chan struct{}
+	closeCh        chan struct{}
+	flushWG        sync.WaitGroup
 }
 
-func NewMilvusClient(uri, token, dbName, collectionName string, dim int) (*MilvusClient, error) {
-	c, err := client.NewClient(context.Background(), client.Config{
+func NewMilvusClient(ctx context.Context, uri, token, dbName, collectionName string, dim int) (*MilvusClient, error) {
+	c, err := client.NewClient(ctx, client.Config{
 		Address: uri,
 		APIKey:  token,
 		DBName:  dbName,
@@ -49,12 +57,17 @@ func NewMilvusClient(uri, token, dbName, collectionName string, dim int) (*Milvu
 		return nil, fmt.Errorf("failed to connect to Milvus: %w", err)
 	}
 
-	return &MilvusClient{
+	m := &MilvusClient{
 		client:         c,
 		dim:            dim,
 		dbName:         dbName,
 		collectionName: collectionName,
-	}, nil
+		flushSignals:   make(chan struct{}, 1),
+		closeCh:        make(chan struct{}),
+	}
+	m.flushWG.Add(1)
+	go m.flushLoop()
+	return m, nil
 }
 
 func (m *MilvusClient) CreateCollection(ctx context.Context) error {
@@ -75,12 +88,7 @@ func (m *MilvusClient) CreateCollection(ctx context.Context) error {
 		CollectionName: m.collectionName,
 		AutoID:         true,
 		Fields: []*entity.Field{
-			{
-				Name:       IDField,
-				DataType:   entity.FieldTypeInt64,
-				PrimaryKey: true,
-				AutoID:     true,
-			},
+			{Name: IDField, DataType: entity.FieldTypeInt64, PrimaryKey: true, AutoID: true},
 			{
 				Name:     ContentField,
 				DataType: entity.FieldTypeVarChar,
@@ -143,7 +151,6 @@ func (m *MilvusClient) Insert(ctx context.Context, docs []Document) error {
 	contents := make([]string, len(docs))
 	metadatas := make([]string, len(docs))
 	vectors := make([][]float32, len(docs))
-
 	for i, doc := range docs {
 		contents[i] = doc.Content
 		metadatas[i] = doc.Metadata
@@ -157,18 +164,7 @@ func (m *MilvusClient) Insert(ctx context.Context, docs []Document) error {
 	if _, err := m.client.Insert(ctx, m.collectionName, "", contentCol, metadataCol, vectorCol); err != nil {
 		return fmt.Errorf("failed to insert documents: %w", err)
 	}
-
-	// 异步 Flush，避免每次插入都同步阻塞等待刷盘
-	go func() {
-		if err := m.client.Flush(context.Background(), m.collectionName, false); err != nil {
-			logger.Warn("Milvus async flush failed",
-				zap.String("db_name", m.dbName),
-				zap.String("collection_name", m.collectionName),
-				zap.Error(err),
-			)
-		}
-	}()
-
+	m.scheduleFlush()
 	return nil
 }
 
@@ -195,38 +191,90 @@ func (m *MilvusClient) Search(ctx context.Context, vector []float32, topK int) (
 		return []SearchResult{}, nil
 	}
 
-	results := make([]SearchResult, 0)
+	results := make([]SearchResult, 0, searchResult[0].ResultCount)
 	for i := 0; i < searchResult[0].ResultCount; i++ {
 		id, _ := searchResult[0].IDs.GetAsInt64(i)
 		score := searchResult[0].Scores[i]
 
 		var content, metadata string
 		for _, field := range searchResult[0].Fields {
-			if field.Name() == ContentField {
+			switch field.Name() {
+			case ContentField:
 				if col, ok := field.(*entity.ColumnVarChar); ok {
 					content, _ = col.ValueByIdx(i)
 				}
-			}
-			if field.Name() == MetadataField {
+			case MetadataField:
 				if col, ok := field.(*entity.ColumnVarChar); ok {
 					metadata, _ = col.ValueByIdx(i)
 				}
 			}
 		}
 
-		results = append(results, SearchResult{
-			ID:       id,
-			Content:  content,
-			Metadata: metadata,
-			Score:    score,
-		})
+		results = append(results, SearchResult{ID: id, Content: content, Metadata: metadata, Score: score})
 	}
-
 	return results, nil
 }
 
 func (m *MilvusClient) Close() {
+	close(m.closeCh)
+	m.flushWG.Wait()
 	if m.client != nil {
 		m.client.Close()
 	}
+}
+
+func (m *MilvusClient) scheduleFlush() {
+	select {
+	case m.flushSignals <- struct{}{}:
+	default:
+	}
+}
+
+func (m *MilvusClient) flushLoop() {
+	defer m.flushWG.Done()
+	timer := time.NewTimer(defaultFlushInterval)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	pending := false
+
+	for {
+		select {
+		case <-m.flushSignals:
+			pending = true
+			resetTimer(timer, defaultFlushInterval)
+		case <-timer.C:
+			if pending {
+				m.flushNow()
+				pending = false
+			}
+		case <-m.closeCh:
+			if pending {
+				m.flushNow()
+			}
+			return
+		}
+	}
+}
+
+func (m *MilvusClient) flushNow() {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFlushTimeout)
+	defer cancel()
+	if err := m.client.Flush(ctx, m.collectionName, false); err != nil {
+		logger.Warn("Milvus flush failed",
+			zap.String("db_name", m.dbName),
+			zap.String("collection_name", m.collectionName),
+			zap.Error(err),
+		)
+	}
+}
+
+func resetTimer(timer *time.Timer, d time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(d)
 }

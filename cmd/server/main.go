@@ -13,32 +13,37 @@ import (
 	"go.uber.org/zap"
 
 	"go-eino-agent/config"
+	"go-eino-agent/internal/bootstrap"
 	"go-eino-agent/internal/handler"
 	"go-eino-agent/pkg/logger"
 )
 
 func main() {
-	// 初始化日志系统
 	if err := logger.Init(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer logger.Sync()
 
-	// 加载配置
 	cfg := config.Load()
 	if err := cfg.Validate(); err != nil {
 		logger.Fatal("Invalid config", zap.Error(err))
 	}
 
-	// 创建 Handler
-	h, err := handler.NewHandler(cfg)
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+
+	deps, err := bootstrap.Build(appCtx, cfg)
+	if err != nil {
+		logger.Fatal("Failed to bootstrap application", zap.Error(err))
+	}
+
+	h, err := handler.NewHandler(deps)
 	if err != nil {
 		logger.Fatal("Failed to create handler", zap.Error(err))
 	}
 	defer h.Close()
 
-	// 创建 Gin 路由
 	r := gin.New()
 	r.Use(gin.Recovery())
 	metrics := newRequestMetrics()
@@ -55,35 +60,31 @@ func main() {
 	r.Use(buildCORSMiddleware(cfg))
 	r.Use(limiter.middleware())
 	r.Use(metrics.middleware())
-
-	// 静态文件服务
 	r.Static("/static", "./web/static")
 	r.LoadHTMLGlob("web/templates/*")
-
-	// 首页
 	r.GET("/", func(c *gin.Context) {
-		c.HTML(200, "index.html", gin.H{
-			"title": "网络热词 RAG 系统",
-		})
+		c.HTML(200, "index.html", gin.H{"title": "网络热词 RAG 系统"})
 	})
 
-	// API 路由
 	api := r.Group("/api")
 	{
 		api.GET("/health", h.HandleHealth)
 		api.GET("/metrics", metrics.handleMetrics)
+		api.GET("/upload/:taskID", h.HandleUploadStatus)
 		api.POST("/upload", h.HandleUpload)
 		api.POST("/query", h.HandleQuery)
 		api.POST("/search", h.HandleSearch)
 	}
 
-	// 启动服务器
 	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
 	logger.Info(fmt.Sprintf("Server starting on %s", addr))
 	logger.Info(fmt.Sprintf("Visit http://localhost:%s", cfg.Server.Port))
 	logger.Info("Runtime config",
 		zap.Float64("rate_limit_rps", cfg.Security.RateLimitRPS),
 		zap.Float64("rate_limit_burst", cfg.Security.RateLimitBurst),
+		zap.Int("query_default_timeout_sec", cfg.Security.QueryDefaultTimeoutSec),
+		zap.Float64("query_default_rate_limit_rps", cfg.Security.QueryDefaultRateLimitRPS),
+		zap.Float64("query_default_rate_limit_burst", cfg.Security.QueryDefaultRateLimitBurst),
 		zap.Int("read_timeout_sec", cfg.Server.ReadTimeoutSec),
 		zap.Int("write_timeout_sec", cfg.Server.WriteTimeoutSec),
 		zap.Int("shutdown_timeout_sec", cfg.Server.ShutdownTimeoutSec),
@@ -113,5 +114,6 @@ func main() {
 		logger.Error("Graceful shutdown failed", zap.Error(err))
 		return
 	}
+	appCancel()
 	logger.Info("Server stopped gracefully")
 }

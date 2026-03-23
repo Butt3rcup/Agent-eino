@@ -17,3 +17,9 @@ func TestIsAllowedUploadType(t *testing.T) {
 		t.Fatal("expected invalid pdf content type to be rejected")
 	}
 }
+
+func TestPDFUploadRemainsMimeValidated(t *testing.T) {
+	if !isAllowedUploadType(".pdf", "application/pdf") {
+		t.Fatal("expected application/pdf to be allowed for pdf uploads")
+	}
+}

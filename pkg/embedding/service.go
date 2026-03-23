@@ -12,9 +12,9 @@ type Service struct {
 	embedder embedding.Embedder
 }
 
-func NewService(apiKey, baseURL, model string) (*Service, error) {
+func NewService(ctx context.Context, apiKey, baseURL, model string) (*Service, error) {
 	apiType := arkEmbedding.APITypeMultiModal
-	embedder, err := arkEmbedding.NewEmbedder(context.Background(), &arkEmbedding.EmbeddingConfig{
+	embedder, err := arkEmbedding.NewEmbedder(ctx, &arkEmbedding.EmbeddingConfig{
 		APIKey:  apiKey,
 		BaseURL: baseURL,
 		Model:   model,

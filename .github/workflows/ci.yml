@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Prepare caches (Linux)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p tmp/.gopath tmp/.gopath/pkg/mod tmp/.gocache
+      - name: Prepare caches (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path tmp/.gopath | Out-Null
+          New-Item -ItemType Directory -Force -Path tmp/.gopath/pkg/mod | Out-Null
+          New-Item -ItemType Directory -Force -Path tmp/.gocache | Out-Null
+      - name: Test (Linux)
+        if: runner.os != 'Windows'
+        env:
+          GOPATH: ${{ github.workspace }}/tmp/.gopath
+          GOMODCACHE: ${{ github.workspace }}/tmp/.gopath/pkg/mod
+          GOCACHE: ${{ github.workspace }}/tmp/.gocache
+        run: bash scripts/test.sh
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GOPATH: ${{ github.workspace }}\tmp\.gopath
+          GOMODCACHE: ${{ github.workspace }}\tmp\.gopath\pkg\mod
+          GOCACHE: ${{ github.workspace }}\tmp\.gocache
+        run: powershell -ExecutionPolicy Bypass -File scripts/test.ps1
