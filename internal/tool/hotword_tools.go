@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -17,95 +16,13 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 
+	"go-eino-agent/internal/cache"
 	"go-eino-agent/pkg/embedding"
 	"go-eino-agent/pkg/logger"
 	"go-eino-agent/pkg/vectordb"
 )
 
-// SearchCache 搜索结果缓存
-type SearchCache struct {
-	mu      sync.RWMutex
-	entries map[string]*CacheEntry
-	maxSize int
-	ttl     time.Duration
-}
-
-// CacheEntry 缓存条目
-type CacheEntry struct {
-	Results   []HotwordResult
-	Timestamp time.Time
-}
-
-// NewSearchCache 创建搜索缓存
-func NewSearchCache(maxSize int, ttl time.Duration) *SearchCache {
-	return &SearchCache{
-		entries: make(map[string]*CacheEntry),
-		maxSize: maxSize,
-		ttl:     ttl,
-	}
-}
-
-// Get 获取缓存结果
-func (c *SearchCache) Get(key string) ([]HotwordResult, bool) {
-	c.mu.RLock()
-	entry, exists := c.entries[key]
-	c.mu.RUnlock()
-
-	if !exists {
-		return nil, false
-	}
-
-	// 检查是否过期（在持锁外判断，避免读锁升写锁）
-	if time.Since(entry.Timestamp) > c.ttl {
-		return nil, false
-	}
-
-	return entry.Results, true
-}
-
-// Set 设置缓存
-func (c *SearchCache) Set(key string, results []HotwordResult) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.removeExpiredLocked()
-
-	// 如果超过最大容量，删除最旧的条目
-	if len(c.entries) >= c.maxSize {
-		c.evictOldest()
-	}
-
-	c.entries[key] = &CacheEntry{
-		Results:   results,
-		Timestamp: time.Now(),
-	}
-}
-
-// evictOldest 驱逐最旧的缓存条目
-func (c *SearchCache) evictOldest() {
-	var oldestKey string
-	var oldestTime time.Time
-
-	for key, entry := range c.entries {
-		if oldestKey == "" || entry.Timestamp.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = entry.Timestamp
-		}
-	}
-
-	if oldestKey != "" {
-		delete(c.entries, oldestKey)
-	}
-}
-
-func (c *SearchCache) removeExpiredLocked() {
-	now := time.Now()
-	for key, entry := range c.entries {
-		if now.Sub(entry.Timestamp) > c.ttl {
-			delete(c.entries, key)
-		}
-	}
-}
+const hotwordCacheGeneration = 0
 
 // generateCacheKey 生成缓存键
 func generateCacheKey(keyword string) string {
@@ -113,11 +30,21 @@ func generateCacheKey(keyword string) string {
 	return hex.EncodeToString(hash[:])
 }
 
+func cloneHotwordResults(values []HotwordResult) []HotwordResult {
+	if values == nil {
+		return nil
+	}
+	cloned := make([]HotwordResult, len(values))
+	copy(cloned, values)
+	return cloned
+}
+
 // HotwordSearchTool 网络热词搜索工具（先查数据库，无结果则百度搜索）
 type HotwordSearchTool struct {
-	vectorDB  *vectordb.MilvusClient
-	embedding *embedding.Service
-	cache     *SearchCache
+	vectorDB   *vectordb.MilvusClient
+	embedding  *embedding.Service
+	cache      *cache.TTLCache[[]HotwordResult]
+	httpClient *http.Client
 }
 
 type HotwordSearchInput struct {
@@ -137,9 +64,10 @@ type HotwordResult struct {
 
 func NewHotwordSearchTool(vectorDB *vectordb.MilvusClient, embeddingSvc *embedding.Service) *HotwordSearchTool {
 	return &HotwordSearchTool{
-		vectorDB:  vectorDB,
-		embedding: embeddingSvc,
-		cache:     NewSearchCache(100, 30*time.Minute), // 缓存100条，30分钟过期
+		vectorDB:   vectorDB,
+		embedding:  embeddingSvc,
+		cache:      cache.NewTTLCache(100, 30*time.Minute, cloneHotwordResults), // 缓存100条，30分钟过期
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -166,7 +94,7 @@ func (t *HotwordSearchTool) InvokableRun(ctx context.Context, argumentsInJSON st
 
 	// 1. 检查缓存
 	cacheKey := generateCacheKey(input.Keyword)
-	if cachedResults, found := t.cache.Get(cacheKey); found {
+	if cachedResults, found := t.cache.Get(cacheKey, hotwordCacheGeneration); found {
 		logger.Info("[HotwordSearch] 从缓存找到结果", zap.String("keyword", input.Keyword))
 		output := HotwordSearchOutput{Results: cachedResults}
 		data, _ := json.Marshal(output)
@@ -180,7 +108,7 @@ func (t *HotwordSearchTool) InvokableRun(ctx context.Context, argumentsInJSON st
 	} else if len(dbResults) > 0 {
 		logger.Info("[HotwordSearch] 从数据库找到结果", zap.Int("count", len(dbResults)))
 		// 缓存结果
-		t.cache.Set(cacheKey, dbResults)
+		t.cache.Set(cacheKey, dbResults, hotwordCacheGeneration)
 		output := HotwordSearchOutput{Results: dbResults}
 		data, _ := json.Marshal(output)
 		return string(data), nil
@@ -197,7 +125,7 @@ func (t *HotwordSearchTool) InvokableRun(ctx context.Context, argumentsInJSON st
 
 	// 缓存百度搜索结果
 	if len(baiduResults) > 0 {
-		t.cache.Set(cacheKey, baiduResults)
+		t.cache.Set(cacheKey, baiduResults, hotwordCacheGeneration)
 	}
 
 	output := HotwordSearchOutput{Results: baiduResults}
@@ -343,9 +271,10 @@ func (t *HotwordSearchTool) searchFromBaidu(ctx context.Context, keyword string)
 
 	logger.Info("[HotwordSearch] 百度搜索", zap.String("url", searchURL))
 
-	// 发起HTTP请求
-	client := &http.Client{
-		Timeout: 10 * time.Second,
+	// 发起HTTP请求（带超时 Client）
+	client := t.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
@@ -487,6 +416,7 @@ type TrendAnalysisOutput struct {
 	Keyword    string      `json:"keyword"`
 	Trend      string      `json:"trend"`
 	DataPoints []DataPoint `json:"data_points"`
+	Mock       bool        `json:"mock"`
 }
 
 type DataPoint struct {
@@ -525,8 +455,9 @@ func (t *TrendAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON st
 		input.TimeRange = "7d"
 	}
 
-	// 模拟趋势数据
+	// 模拟趋势数据（暂无真实数据源）
 	output := t.mockTrendAnalysis(input.Keyword, input.TimeRange)
+	output.Trend = "[模拟数据] " + output.Trend
 
 	data, err := json.Marshal(output)
 	if err != nil {
@@ -565,6 +496,7 @@ func (t *TrendAnalysisTool) mockTrendAnalysis(keyword, timeRange string) TrendAn
 		Keyword:    keyword,
 		Trend:      trend,
 		DataPoints: dataPoints,
+		Mock:       true,
 	}
 }
 
@@ -581,6 +513,7 @@ type ExplanationOutput struct {
 	Origin      string   `json:"origin"`
 	Usage       []string `json:"usage"`
 	Related     []string `json:"related"`
+	Mock        bool     `json:"mock"`
 }
 
 func NewExplanationTool() *ExplanationTool {
@@ -619,12 +552,13 @@ func (t *ExplanationTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 func (t *ExplanationTool) mockExplanation(keyword string) ExplanationOutput {
 	return ExplanationOutput{
 		Keyword:     keyword,
-		Explanation: fmt.Sprintf("'%s' 是一个流行的网络用语，广泛用于社交媒体和日常交流中", keyword),
+		Explanation: fmt.Sprintf("[模拟数据] '%s' 是一个流行的网络用语，广泛用于社交媒体和日常交流中", keyword),
 		Origin:      "起源于网络社区，通过短视频平台迅速传播",
 		Usage: []string{
 			fmt.Sprintf("在表达赞美时使用：这个真%s！", keyword),
 			fmt.Sprintf("在评论中使用：%s，必须支持", keyword),
 		},
 		Related: []string{"网络流行语", "年轻人用语", "社交媒体"},
+		Mock:    true,
 	}
 }

@@ -4,19 +4,24 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	arkComponent "github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"golang.org/x/sync/errgroup"
 
 	"go-eino-agent/internal/agent"
 )
 
 type RAGGraphConfig struct {
-	ChatModel    model.ChatModel
-	APIKey       string
-	BaseURL      string
+	ChatModel model.ChatModel
+	// Deprecated: Rely on ChatModel instead of Ark credentials.
+	APIKey string
+	// Deprecated: Rely on ChatModel instead of Ark credentials.
+	BaseURL string
+	// Deprecated: Rely on ChatModel instead of Ark credentials.
 	Model        string
 	RAGContext   func(context.Context, string) (string, error)
 	SystemPrompt string
@@ -119,9 +124,12 @@ func (g *RAGGraph) Stream(ctx context.Context, query string) (*schema.StreamRead
 }
 
 type MultiStageGraphConfig struct {
-	ChatModel  model.ChatModel
-	APIKey     string
-	BaseURL    string
+	ChatModel model.ChatModel
+	// Deprecated: Rely on ChatModel instead of Ark credentials.
+	APIKey string
+	// Deprecated: Rely on ChatModel instead of Ark credentials.
+	BaseURL string
+	// Deprecated: Rely on ChatModel instead of Ark credentials.
 	Model      string
 	RAGContext func(context.Context, string) (string, error)
 	Tools      map[string]func(context.Context, string) (string, error)
@@ -198,6 +206,8 @@ func NewMultiStageGraph(ctx context.Context, config *MultiStageGraphConfig) (*Mu
 			return nil, fmt.Errorf("plan not found in input")
 		}
 		stepResults := make(map[string]string)
+		var mu sync.Mutex
+		eg, egCtx := errgroup.WithContext(ctx)
 		for _, step := range plan.Steps {
 			if !step.Required || step.Name == "summarize" {
 				continue
@@ -206,19 +216,29 @@ func NewMultiStageGraph(ctx context.Context, config *MultiStageGraphConfig) (*Mu
 			if !exists {
 				continue
 			}
-			result, err := toolFunc(ctx, query)
-			if err != nil {
-				return nil, err
-			}
-			if config.Validator != nil {
-				if err := config.Validator.ValidateToolResult(query, step.Name, result); err != nil {
-					if trace := agent.TraceFromContext(ctx); trace != nil {
-						trace.IncValidationFailures()
-					}
-					return nil, err
+			currentStep := step
+			currentToolFunc := toolFunc
+			eg.Go(func() error {
+				result, err := currentToolFunc(egCtx, query)
+				if err != nil {
+					return err
 				}
-			}
-			stepResults[step.Name] = result
+				if config.Validator != nil {
+					if err := config.Validator.ValidateToolResult(query, currentStep.Name, result); err != nil {
+						if trace := agent.TraceFromContext(egCtx); trace != nil {
+							trace.IncValidationFailures()
+						}
+						return err
+					}
+				}
+				mu.Lock()
+				stepResults[currentStep.Name] = result
+				mu.Unlock()
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, err
 		}
 		input["step_results"] = stepResults
 		return input, nil

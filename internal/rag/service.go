@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 
+	"go-eino-agent/internal/cache"
 	"go-eino-agent/pkg/embedding"
 	"go-eino-agent/pkg/logger"
 	"go-eino-agent/pkg/parser"
@@ -41,9 +42,9 @@ type Service struct {
 	uploadDir        string
 	persistQueue     *persistQueue
 	indexGeneration  atomic.Uint64
-	embeddingCache   *ttlCache[[]float32]
-	searchCache      *ttlCache[[]vectordb.SearchResult]
-	contextCache     *ttlCache[string]
+	embeddingCache   *cache.TTLCache[[]float32]
+	searchCache      *cache.TTLCache[[]vectordb.SearchResult]
+	contextCache     *cache.TTLCache[string]
 	embeddingGroup   singleflight.Group
 	searchGroup      singleflight.Group
 	contextGroup     singleflight.Group
@@ -60,45 +61,50 @@ type autoKnowledgeMetadata struct {
 	SavedAt      string `json:"saved_at"`
 }
 
-func NewService(
-	vectorDB *vectordb.MilvusClient,
-	embeddingSvc *embedding.Service,
-	chunkSize, overlap, topK int,
-	maxContextDocs, maxContextChars int,
-	maxScoreDelta float32,
-	webSearchTool tool.InvokableTool,
-	enableAutoSearch bool,
-	threshold float32,
-	autoSave bool,
-	autoSaveMinChars int,
-	uploadDir string,
-	asyncKnowledgePersist bool,
-	persistQueueSize int,
-	queryCacheSize int,
-	queryCacheTTL time.Duration,
-) *Service {
+type ServiceConfig struct {
+	VectorDB              *vectordb.MilvusClient
+	EmbeddingSvc          *embedding.Service
+	ChunkSize             int
+	ChunkOverlap          int
+	TopK                  int
+	MaxContextDocs        int
+	MaxContextChars       int
+	MaxScoreDelta         float32
+	WebSearchTool         tool.InvokableTool
+	EnableAutoSearch      bool
+	SimilarityThreshold   float32
+	AutoSave              bool
+	AutoSaveMinChars      int
+	UploadDir             string
+	AsyncKnowledgePersist bool
+	PersistQueueSize      int
+	QueryCacheSize        int
+	QueryCacheTTL         time.Duration
+}
+
+func NewService(cfg ServiceConfig) *Service {
 	service := &Service{
-		vectorDB:         vectorDB,
-		embedding:        embeddingSvc,
+		vectorDB:         cfg.VectorDB,
+		embedding:        cfg.EmbeddingSvc,
 		parser:           parser.NewParser(),
-		chunkSize:        chunkSize,
-		overlap:          overlap,
-		topK:             topK,
-		maxDocs:          maxContextDocs,
-		maxChars:         maxContextChars,
-		maxDelta:         maxScoreDelta,
-		webSearchTool:    webSearchTool,
-		enableAutoSearch: enableAutoSearch,
-		threshold:        threshold,
-		autoSave:         autoSave,
-		autoSaveMinChars: autoSaveMinChars,
-		uploadDir:        uploadDir,
-		embeddingCache:   newTTLCache(queryCacheSize, queryCacheTTL, cloneFloat32Slice),
-		searchCache:      newTTLCache(queryCacheSize, queryCacheTTL, cloneSearchResults),
-		contextCache:     newTTLCache(queryCacheSize, queryCacheTTL, cloneString),
+		chunkSize:        cfg.ChunkSize,
+		overlap:          cfg.ChunkOverlap,
+		topK:             cfg.TopK,
+		maxDocs:          cfg.MaxContextDocs,
+		maxChars:         cfg.MaxContextChars,
+		maxDelta:         cfg.MaxScoreDelta,
+		webSearchTool:    cfg.WebSearchTool,
+		enableAutoSearch: cfg.EnableAutoSearch,
+		threshold:        cfg.SimilarityThreshold,
+		autoSave:         cfg.AutoSave,
+		autoSaveMinChars: cfg.AutoSaveMinChars,
+		uploadDir:        cfg.UploadDir,
+		embeddingCache:   cache.NewTTLCache(cfg.QueryCacheSize, cfg.QueryCacheTTL, cloneFloat32Slice),
+		searchCache:      cache.NewTTLCache(cfg.QueryCacheSize, cfg.QueryCacheTTL, cloneSearchResults),
+		contextCache:     cache.NewTTLCache(cfg.QueryCacheSize, cfg.QueryCacheTTL, cloneString),
 	}
-	if autoSave && asyncKnowledgePersist {
-		service.persistQueue = newPersistQueue(persistQueueSize, 30*time.Second, service.saveSearchResult)
+	if cfg.AutoSave && cfg.AsyncKnowledgePersist {
+		service.persistQueue = newPersistQueue(cfg.PersistQueueSize, 30*time.Second, service.saveSearchResult)
 	}
 	return service
 }
@@ -122,9 +128,9 @@ func (s *Service) QueueStats() *PersistQueueStats {
 
 func (s *Service) CacheStats() *QueryCacheStats {
 	return &QueryCacheStats{
-		Embedding: s.metricOrDisabled(s.embeddingCache),
-		Search:    s.metricOrDisabled(s.searchCache),
-		Context:   s.metricOrDisabled(s.contextCache),
+		Embedding: metricFromCache(s.embeddingCache),
+		Search:    metricFromCache(s.searchCache),
+		Context:   metricFromCache(s.contextCache),
 	}
 }
 
@@ -450,13 +456,6 @@ func (s *Service) getQueryEmbedding(ctx context.Context, query string, generatio
 		return nil, fmt.Errorf("unexpected embedding result type: %T", value)
 	}
 	return cloneFloat32Slice(vector), nil
-}
-
-func (s *Service) metricOrDisabled(cache interface{ Stats() QueryCacheMetric }) QueryCacheMetric {
-	if cache == nil {
-		return QueryCacheMetric{Enabled: false}
-	}
-	return cache.Stats()
 }
 
 func (s *Service) requestKey(prefix, query string, generation uint64) string {

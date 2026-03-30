@@ -253,6 +253,9 @@ func (c *Config) Validate() error {
 	if len(c.Server.CORSAllowOrigins) == 0 {
 		return fmt.Errorf("CORS_ALLOWED_ORIGINS must not be empty")
 	}
+	if (c.Ollama.BaseURL != "" && c.Ollama.Model == "") || (c.Ollama.BaseURL == "" && c.Ollama.Model != "") {
+		log.Println("Warning: OLLAMA_BASE_URL and OLLAMA_MODEL are partially configured; Ollama support will remain disabled")
+	}
 	return nil
 }
 
